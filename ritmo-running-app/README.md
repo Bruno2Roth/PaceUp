@@ -1,0 +1,24 @@
+# Ritmo — plan de running
+
+Aplicación web estática para abrir y visualizar la planilla semanal de running.
+
+## Ejecutarla localmente
+
+1. Instalar Node.js 20.19 o superior.
+2. En esta carpeta, ejecutar npm install.
+3. Ejecutar npm run dev.
+4. Abrir la dirección local que muestra Vite, normalmente http://localhost:5173.
+5. Elegir el archivo .xlsx o .xlsm.
+
+La planilla se lee dentro del navegador. La aplicación no la envía a un servidor.
+
+## Prepararla para Netlify
+
+- Build command: npm run build
+- Publish directory: dist
+
+El archivo netlify.toml ya incluye esa configuración.
+
+## Formato reconocido
+
+Pestañas con nombre de mes, una fila de encabezados de lunes a domingo y semanas marcadas como S##. Cada día contiene su fecha y entrenamiento; la descripción está en la fila siguiente. Se conservan las categorías a partir del color de la celda. Los kilómetros se estiman con las distancias explícitas escritas en el entrenamiento.
