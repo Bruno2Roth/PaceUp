@@ -14,6 +14,7 @@ const state = {
 };
 
 const app = document.querySelector("#app");
+let dragDepth = 0;
 
 function escapeHTML(value) {
   return String(value ?? "").replace(/[&<>"']/g, character => ({
@@ -117,10 +118,10 @@ function metricsMarkup(weeks) {
 
 function emptyState() {
   return '<div class="empty-state">' +
-    '<div class="empty-illustration"><span class="track-ring"></span><span class="track-dot"></span><span class="shoe-mark">↗</span></div>' +
-    '<p class="eyebrow">TU PLAN, MÁS CLARO</p><h2>Cargá tu Excel de running</h2>' +
-    '<p class="empty-copy">La app va a leer las pestañas por mes, las semanas, las descripciones y los colores de cada entrenamiento.</p>' +
-    '<button class="primary-button" type="button" data-open-file>Elegir archivo Excel</button>' +
+    '<div class="empty-illustration" aria-hidden="true"><span class="track-ring"></span><span class="track-dot"></span><span class="shoe-mark">↗</span></div>' +
+    '<p class="eyebrow">PACEUP · TU PLAN DE RUNNING</p><h2>Arrastrá tu Excel acá</h2>' +
+    '<p class="empty-copy">Visualizá tus semanas, sesiones, kilómetros y notas en un calendario simple.</p>' +
+    '<button class="primary-button" type="button" data-open-file><span aria-hidden="true">＋</span> Elegir archivo Excel</button>' +
     '<p class="file-hint">Compatible con .xlsx y .xlsm · El archivo se procesa en este navegador</p>' +
     "</div>";
 }
@@ -152,15 +153,28 @@ function bindEvents() {
 
   const drop = document.querySelector("#drop-target");
   if (drop) {
-    ["dragenter", "dragover"].forEach(type => drop.addEventListener(type, event => {
+    drop.addEventListener("dragenter", event => {
+      if (!Array.from(event.dataTransfer?.types || []).includes("Files")) return;
       event.preventDefault();
+      dragDepth += 1;
       drop.classList.add("is-dragging");
-    }));
-    ["dragleave", "drop"].forEach(type => drop.addEventListener(type, event => {
+    });
+    drop.addEventListener("dragover", event => {
+      if (!Array.from(event.dataTransfer?.types || []).includes("Files")) return;
       event.preventDefault();
-      drop.classList.remove("is-dragging");
-    }));
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+    });
+    drop.addEventListener("dragleave", event => {
+      if (!Array.from(event.dataTransfer?.types || []).includes("Files")) return;
+      event.preventDefault();
+      dragDepth = Math.max(0, dragDepth - 1);
+      if (!dragDepth) drop.classList.remove("is-dragging");
+    });
     drop.addEventListener("drop", event => {
+      if (!Array.from(event.dataTransfer?.types || []).includes("Files")) return;
+      event.preventDefault();
+      dragDepth = 0;
+      drop.classList.remove("is-dragging");
       const file = event.dataTransfer?.files?.[0];
       if (file) loadFile(file);
     });
@@ -206,8 +220,8 @@ function render() {
     '<option value="' + escapeHTML(month.name + "-" + month.year) + '"' +
     (state.activeMonth === month.name + "-" + month.year ? " selected" : "") + ">" + escapeHTML(monthTitle(month)) + "</option>"
   ).join("");
-  const header = '<header class="topbar"><a class="brand" href="#" aria-label="Ritmo, inicio">' +
-    '<span class="brand-symbol"><span></span><span></span><span></span></span><span>ritmo<span class="brand-period">.</span></span></a>' +
+  const header = '<header class="topbar"><a class="brand" href="#" aria-label="PaceUp, inicio">' +
+    '<span class="brand-symbol"><span></span><span></span><span></span></span><span>PaceUp</span></a>' +
     '<div class="topbar-right"><span class="local-badge"><span class="status-dot"></span>Se procesa en tu navegador</span>' +
     '<button class="outline-button" type="button" data-open-file>' +
     (state.fileName ? "Cambiar Excel" : "Importar Excel") + "</button></div></header>";
@@ -216,13 +230,13 @@ function render() {
   if (!state.weeks.length) {
     body = '<main id="drop-target" class="main-shell empty-shell">' +
       (state.loading ? '<div class="loading-state"><span class="loader"></span><strong>Leyendo tu planilla...</strong><span>Un momento</span></div>' : emptyState()) +
-      (state.error ? '<p class="error-message">' + escapeHTML(state.error) + "</p>" : "") + "</main>";
+      (state.error ? '<p class="error-message" role="alert">' + escapeHTML(state.error) + "</p>" : "") + "</main>";
   } else {
     body = '<main id="drop-target" class="main-shell">' +
-      '<section class="page-intro"><div><p class="eyebrow">PLAN DE ENTRENAMIENTO</p><h1>Tu running,<br><span>semana a semana.</span></h1>' +
+      '<section class="page-intro"><div><p class="eyebrow">PACEUP · PLAN DE ENTRENAMIENTO</p><h1>Tus entrenamientos,<br><span>semana a semana.</span></h1>' +
       '<p class="intro-copy">Una vista simple de tus sesiones, ritmos y carga semanal.</p></div>' +
       '<div class="file-card"><div class="file-icon">XLS</div><div class="file-meta"><strong>' + escapeHTML(state.fileName) +
-      '</strong><span>Plan importado localmente</span></div><button class="file-change" type="button" data-open-file aria-label="Cambiar Excel">↻</button></div></section>' +
+      '</strong><span>Procesado localmente · arrastrá otro para cambiar</span></div><button class="file-change" type="button" data-open-file aria-label="Cambiar Excel">↻</button></div></section>' +
       '<section class="metrics-grid" aria-label="Resumen del plan">' + metricsMarkup(weeks) + "</section>" +
       '<section class="calendar-toolbar"><div><p class="eyebrow">CALENDARIO</p><h2>' +
       escapeHTML(currentMonth ? monthTitle(currentMonth) : "Entrenamientos") + "</h2></div>" +
@@ -234,7 +248,7 @@ function render() {
       '<div class="legend"><span><i class="legend-dot tone-lesion"></i>Lesión</span><span><i class="legend-dot tone-easy"></i>Suave</span>' +
       '<span><i class="legend-dot tone-steady"></i>Extensivo</span><span><i class="legend-dot tone-controlled"></i>Controlado</span>' +
       '<span><i class="legend-dot tone-hard"></i>Intenso</span></div>' +
-      (state.error ? '<p class="error-message">' + escapeHTML(state.error) + "</p>" : "") +
+      (state.error ? '<p class="error-message" role="alert">' + escapeHTML(state.error) + "</p>" : "") +
       (weeks.length ? weeks.map(week => weekCard(week, maximumKm)).join("") :
         '<div class="no-results"><strong>No hay entrenamientos para mostrar.</strong><span>Probá con otro mes o cambiá la búsqueda.</span>' +
         (state.search ? '<button class="text-button" data-clear-search type="button">Borrar búsqueda</button>' : "") + "</div>") +
@@ -267,7 +281,16 @@ async function loadFile(file) {
     const workbook = readXlsx(buffer);
     const parsed = parseRunningWorkbook(workbook, file.name);
     if (!parsed.weeks.length) {
-      throw new Error("No encontré pestañas mensuales con semanas y columnas de lunes a domingo. Revisá que la planilla conserve el formato habitual.");
+      const monthSheets = parsed.diagnostics?.monthSheets || [];
+      const missingHeaders = parsed.diagnostics?.sheetsWithoutCalendar || [];
+      if (!monthSheets.length) {
+        const names = workbook.worksheets.map(sheet => sheet.name).slice(0, 6).join(", ");
+        throw new Error("Este archivo no tiene pestañas mensuales con entrenamientos. Encontré: " + (names || "ninguna pestaña legible") + ". Elegí la planilla completa del plan, que incluye meses como Septiembre, Octubre o Noviembre.");
+      }
+      if (missingHeaders.length) {
+        throw new Error("Encontré las pestañas " + missingHeaders.join(", ") + ", pero no pude reconocer sus días. Revisá que las columnas tengan los encabezados LUN, MAR, MIÉ, JUE, VIE, SÁB y DOM.");
+      }
+      throw new Error("Encontré pestañas de meses (" + monthSheets.join(", ") + "), pero no pude leer fechas de entrenamiento. Cada semana debe tener una etiqueta S1, S2, etc., y sus fechas en las columnas de lunes a domingo.");
     }
     state.fileName = file.name;
     state.weeks = parsed.weeks;

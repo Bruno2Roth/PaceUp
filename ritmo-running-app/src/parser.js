@@ -3,7 +3,15 @@ const MONTHS = [
   "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"
 ];
 
-const DAY_HEADERS = ["LUN", "MAR", "MIE", "JUE", "VIE", "SAB", "DOM"];
+const DAY_HEADERS = [
+  ["LUN", "MON"],
+  ["MAR", "TUE"],
+  ["MIE", "WED"],
+  ["JUE", "THU"],
+  ["VIE", "FRI"],
+  ["SAB", "SAT"],
+  ["DOM", "SUN"]
+];
 
 function normalize(value) {
   return String(value ?? "")
@@ -33,10 +41,34 @@ function getMonthIndex(sheetName) {
   return MONTHS.findIndex(month => name.includes(normalize(month)));
 }
 
-function hasCalendarHeader(worksheet) {
-  const headers = [];
-  for (let col = 2; col <= 8; col += 1) headers.push(normalize(cellText(worksheet.getRow(1).getCell(col))));
-  return DAY_HEADERS.every((day, index) => headers[index].startsWith(day));
+function findCalendarHeader(worksheet) {
+  const lastRow = Math.min(worksheet.rowCount || 0, 40);
+  for (let rowNumber = 1; rowNumber <= lastRow; rowNumber += 1) {
+    const row = worksheet.getRow(rowNumber);
+    for (let firstDayCol = 1; firstDayCol <= 18; firstDayCol += 1) {
+      const matches = DAY_HEADERS.every((aliases, index) => {
+        const header = normalize(cellText(row.getCell(firstDayCol + index)));
+        return aliases.some(alias => header.startsWith(alias));
+      });
+      if (matches) return { headerRow: rowNumber, firstDayCol, weekLabelCol: firstDayCol - 1 };
+    }
+  }
+  return null;
+}
+
+function isWeekLabel(value) {
+  return /^(?:S|SEMANA)\s*0*\d{1,2}\b/i.test(String(value || "").trim());
+}
+
+function findWeekLabelColumn(worksheet) {
+  const lastRow = Math.min(worksheet.rowCount || 0, 40);
+  for (let rowNumber = 1; rowNumber <= lastRow; rowNumber += 1) {
+    const row = worksheet.getRow(rowNumber);
+    for (let col = 1; col <= 5; col += 1) {
+      if (isWeekLabel(cellText(row.getCell(col)))) return col;
+    }
+  }
+  return 1;
 }
 
 function getFillColor(cell) {
@@ -54,6 +86,14 @@ function extractDay(cell, year, monthIndex) {
     dayNumber = cell.value.getDate();
     title = cellText(cell);
   } else if (typeof cell.value === "number" && Number.isFinite(cell.value)) {
+    if (cell.value >= 20000 && cell.value <= 80000) {
+      const serialDate = new Date(Date.UTC(1899, 11, 30) + Math.floor(cell.value) * 86400000);
+      if (serialDate.getUTCMonth() !== monthIndex) return null;
+      return {
+        date: new Date(serialDate.getUTCFullYear(), serialDate.getUTCMonth(), serialDate.getUTCDate()),
+        title: ""
+      };
+    }
     dayNumber = Math.round(cell.value);
   } else {
     const lines = cellText(cell).split("\n").map(line => line.trim()).filter(Boolean);
@@ -122,7 +162,7 @@ function sourceYear(fileName) {
 }
 
 function getWeekNumber(label) {
-  const match = String(label || "").match(/S\s*(\d+)/i);
+  const match = String(label || "").match(/(?:S|SEMANA)\s*0*(\d+)/i);
   return match ? Number(match[1]) : null;
 }
 
@@ -130,16 +170,24 @@ export function parseRunningWorkbook(workbook, fileName = "") {
   const year = sourceYear(fileName);
   const months = [];
   const weeks = [];
+  const monthSheets = [];
+  const sheetsWithoutCalendar = [];
 
   workbook.worksheets.forEach(worksheet => {
     const monthIndex = getMonthIndex(worksheet.name);
-    if (monthIndex < 0 || !hasCalendarHeader(worksheet)) return;
+    if (monthIndex < 0) return;
+    monthSheets.push(worksheet.name);
+    const header = findCalendarHeader(worksheet);
+    const weekLabelCol = header?.weekLabelCol || findWeekLabelColumn(worksheet);
+    const firstDayCol = header?.firstDayCol || weekLabelCol + 1;
+    const firstWeekRow = header ? header.headerRow + 1 : 1;
+    if (!header) sheetsWithoutCalendar.push(worksheet.name);
     months.push({ name: MONTHS[monthIndex], index: monthIndex, year });
 
-    for (let rowNumber = 2; rowNumber <= worksheet.rowCount; rowNumber += 1) {
+    for (let rowNumber = firstWeekRow; rowNumber <= worksheet.rowCount; rowNumber += 1) {
       const row = worksheet.getRow(rowNumber);
-      const weekLabel = cellText(row.getCell(1));
-      if (!/^S\s*\d+/i.test(weekLabel)) continue;
+      const weekLabel = cellText(row.getCell(weekLabelCol));
+      if (!isWeekLabel(weekLabel)) continue;
 
       const detailRow = worksheet.getRow(rowNumber + 1);
       const week = {
@@ -150,11 +198,12 @@ export function parseRunningWorkbook(workbook, fileName = "") {
         year,
         label: weekLabel.toUpperCase().replace(/\s+/g, ""),
         weekNumber: getWeekNumber(weekLabel),
-        note: combineNotes(cellText(row.getCell(9)), cellText(detailRow.getCell(9))),
+        note: combineNotes(cellText(row.getCell(firstDayCol + 7)), cellText(detailRow.getCell(firstDayCol + 7))),
         days: []
       };
 
-      for (let col = 2; col <= 8; col += 1) {
+      for (let offset = 0; offset < 7; offset += 1) {
+        const col = firstDayCol + offset;
         const mainCell = row.getCell(col);
         const detailCell = detailRow.getCell(col);
         const parsed = extractDay(mainCell, year, monthIndex);
@@ -166,7 +215,7 @@ export function parseRunningWorkbook(workbook, fileName = "") {
         week.days.push({
           id: week.id + "-" + col,
           date: parsed.date,
-          weekday: col - 2,
+          weekday: offset,
           title: parsed.title || (description ? "Detalle del entrenamiento" : "Sin sesión cargada"),
           description,
           kilometers,
@@ -184,5 +233,13 @@ export function parseRunningWorkbook(workbook, fileName = "") {
   const uniqueMonths = months.filter((month, index) =>
     months.findIndex(item => item.name === month.name && item.year === month.year) === index
   );
-  return { months: uniqueMonths, weeks, year };
+  return {
+    months: uniqueMonths,
+    weeks,
+    year,
+    diagnostics: {
+      monthSheets,
+      sheetsWithoutCalendar: [...new Set(sheetsWithoutCalendar)]
+    }
+  };
 }

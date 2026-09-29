@@ -1,4 +1,4 @@
-# Ritmo — plan de running
+# PaceUp — plan de running
 
 Aplicación web estática para abrir y visualizar la planilla semanal de running.
 
@@ -21,4 +21,4 @@ El archivo netlify.toml ya incluye esa configuración.
 
 ## Formato reconocido
 
-Pestañas con nombre de mes, una fila de encabezados de lunes a domingo y semanas marcadas como S##. Cada día contiene su fecha y entrenamiento; la descripción está en la fila siguiente. Se conservan las categorías a partir del color de la celda. Los kilómetros se estiman con las distancias explícitas escritas en el entrenamiento.
+Pestañas con nombre de mes, encabezados de lunes a domingo y semanas marcadas como S## o Semana ##. El lector busca los encabezados aunque no estén en la primera fila, y admite encabezados en español o inglés. Cada día contiene su fecha y entrenamiento; la descripción de la sesión se lee de la fila siguiente cuando existe. Se conservan las categorías a partir del color de la celda. Los kilómetros se estiman con las distancias explícitas escritas en el entrenamiento.
