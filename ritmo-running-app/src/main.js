@@ -3,6 +3,7 @@ import { readXlsx } from "./readXlsx.js";
 import "./style.css";
 
 const state = {
+  installHelp: "",
   view: "calendar",
   statsYear: "",
   fileName: "",
@@ -17,6 +18,24 @@ const state = {
 
 const app = document.querySelector("#app");
 let dragDepth = 0;
+let installPrompt = null;
+let isInstalled = window.matchMedia('(display-mode: standalone)').matches;
+window.addEventListener('beforeinstallprompt', event => {
+  event.preventDefault();
+  installPrompt = event;
+  state.installHelp = '';
+  render();
+});
+window.addEventListener('appinstalled', () => {
+  isInstalled = true;
+  installPrompt = null;
+  state.installHelp = '';
+  render();
+});
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').catch(() => {});
+}
+
 
 function escapeHTML(value) {
   return String(value ?? "").replace(/[&<>"']/g, character => ({
@@ -76,6 +95,18 @@ function monthStatistics(weeks) {
   return { kilometers: Math.round(days.reduce((sum, day) => sum + countedKm(day), 0) * 10) / 10,
     sessions: training.length, weeks: weeks.length,
     quality: training.filter(day => ["hard", "controlled"].includes(day.trainingColor)).length };
+}
+
+function todayMarkup() {
+  const today = new Date();
+  const day = uniqueDays(state.weeks).find(item => item.date.toDateString() === today.toDateString());
+  const date = formatDate(today, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  return '<section class="today-focus ' + (day ? toneClass(day) : '') + '" aria-labelledby="today-title"><div class="today-focus-heading"><p class="eyebrow">TU ENTRENAMIENTO DE HOY</p><span>' + escapeHTML(date) + '</span></div>' +
+    (day ? '<span class="day-status">' + escapeHTML(day.status.label) + '</span><h1 id="today-title">' + cleanText(day.title) + '</h1>' +
+      (day.description ? '<p class="today-details">' + cleanText(day.description) + '</p>' : '') +
+      '<div class="today-focus-bottom"><strong>' + (["lesion", "rest"].includes(day.trainingColor) ? 'Sin kilómetros de running' : day.kilometers !== null && countedKm(day) > 0 ? formatKm(day.kilometers) + ' en el plan' : 'Sin distancia contabilizada') +
+      '</strong><button class="primary-button" type="button" data-day-id="' + escapeHTML(day.id) + '">Ver detalle completo ↗</button></div>' :
+      '<h1 id="today-title">Hoy no tiene una sesión cargada</h1><p class="today-details">El Excel no incluye un entrenamiento para esta fecha. Podés explorar los meses disponibles debajo.</p>') + '</section>';
 }
 
 function viewNavigation() {
@@ -197,6 +228,23 @@ function modalMarkup(day) {
 }
 
 function bindEvents() {
+  document.querySelector('[data-install]')?.addEventListener('click', async () => {
+    if (!installPrompt) {
+      state.installHelp = 'En Android, abrí PaceUp en Chrome y usá el menú ⋮ → Instalar app o Agregar a la pantalla principal. Si todavía no aparece, volvé a intentarlo después de navegar por la página.';
+      render();
+      return;
+    }
+    const prompt = installPrompt;
+    installPrompt = null;
+    try {
+      await prompt.prompt();
+      const choice = await prompt.userChoice;
+      state.installHelp = choice.outcome === 'accepted' ? 'Instalación solicitada. Confirmá los pasos que muestre Android.' : 'Podés instalar PaceUp más adelante desde el menú del navegador.';
+    } catch {
+      state.installHelp = 'Usá el menú ⋮ del navegador → Instalar app o Agregar a la pantalla principal.';
+    }
+    render();
+  });
   document.querySelectorAll("[data-view]").forEach(button => button.addEventListener("click", () => {
     state.view = button.dataset.view;
     state.selectedDay = null;
@@ -318,7 +366,7 @@ function render() {
   }).join("");
   const header = '<header class="topbar"><a class="brand" href="#" aria-label="PaceUp, inicio">' +
     '<span class="brand-symbol"><span></span><span></span><span></span></span><span>PaceUp</span></a>' +
-    '<div class="topbar-right"><span class="local-badge"><span class="status-dot"></span>Se procesa en tu navegador</span>' +
+    '<div class="topbar-right">' + (isInstalled ? '' : '<button class="outline-button install-button" type="button" data-install>Instalar app</button>') + '<span class="local-badge"><span class="status-dot"></span>Se procesa en tu navegador</span>' +
     '<button class="outline-button" type="button" data-open-file>' +
     (state.fileName ? "Cambiar Excel" : "Importar Excel") + "</button></div></header>";
 
@@ -329,10 +377,7 @@ function render() {
       (state.error ? '<p class="error-message" role="alert">' + escapeHTML(state.error) + "</p>" : "") + "</main>";
   } else {
     body = '<main id="drop-target" class="main-shell">' + viewNavigation() +
-      '<section class="page-intro"><div><p class="eyebrow">PACEUP · PLAN DE ENTRENAMIENTO</p><h1>Tus entrenamientos,<br><span>semana a semana.</span></h1>' +
-      '<p class="intro-copy">Una vista simple de tus sesiones, ritmos y carga semanal.</p></div>' +
-      '<div class="file-card"><div class="file-icon">XLS</div><div class="file-meta"><strong>' + escapeHTML(state.fileName) +
-      '</strong><span>Procesado localmente · arrastrá otro para cambiar</span></div><button class="file-change" type="button" data-open-file aria-label="Cambiar Excel">↻</button></div></section>' +
+      todayMarkup() + '<div class="loaded-file-line"><span>' + escapeHTML(state.fileName) + '</span><button class="text-button" type="button" data-open-file>Cambiar Excel</button></div>' +
       '<section class="metrics-grid" aria-label="Resumen del plan">' + metricsMarkup(weeks) + "</section>" +
       '<section class="calendar-panel"><div class="calendar-toolbar"><div class="calendar-heading"><p class="eyebrow">CALENDARIO DEL PLAN</p>' +
       '<h2>Entrenamientos</h2></div><div class="month-navigation">' +
@@ -358,7 +403,7 @@ function render() {
 
   if (state.weeks.length && state.view !== "calendar") body = statsPage();
 
-  app.innerHTML = '<div class="app-frame">' + header + body +
+  app.innerHTML = '<div class="app-frame">' + header + (state.installHelp ? '<p class="install-help" role="status">' + escapeHTML(state.installHelp) + '</p>' : '') + body +
     '<input id="excel-file" type="file" accept=".xlsx,.xlsm" hidden>' + modalMarkup(state.selectedDay) + "</div>";
   bindEvents();
   const monthStrip = document.querySelector(".month-strip");
@@ -396,6 +441,8 @@ async function loadFile(file) {
       }
       throw new Error("Encontré pestañas de meses (" + monthSheets.join(", ") + "), pero no pude leer fechas de entrenamiento. Cada semana debe tener una etiqueta S1, S2, etc., y sus fechas en las columnas de lunes a domingo.");
     }
+    state.view = "calendar";
+    state.selectedDay = null;
     state.fileName = file.name;
     state.weeks = parsed.weeks;
     state.months = parsed.months;
@@ -419,3 +466,9 @@ async function loadFile(file) {
 
 render();
 
+
+let lastToday = new Date().toDateString();
+setInterval(() => {
+  const current = new Date().toDateString();
+  if (current !== lastToday) { lastToday = current; render(); }
+}, 60000);

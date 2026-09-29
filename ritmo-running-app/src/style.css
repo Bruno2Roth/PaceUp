@@ -509,3 +509,16 @@ h1 span { color: var(--lime); }
 .stats-table th,.stats-table td { text-align:left; padding:15px 10px; border-bottom:1px solid #e5ebe4; }
 .stats-table thead { color:#738078; }
 @media(max-width:720px) { .stats-bar-row { grid-template-columns:95px 1fr 65px; gap:8px; font-size:10px; } }
+
+.today-focus { padding:38px 42px; border-radius:25px; background:#17352b; color:#fff; border-left:7px solid var(--tone,#c7f278); margin-bottom:16px; box-shadow:0 18px 40px #17352b20; }
+.today-focus-heading { display:flex; align-items:center; justify-content:space-between; gap:15px; margin-bottom:28px; }
+.today-focus-heading .eyebrow { color:#c7f278; margin:0; }
+.today-focus-heading > span { color:#c1d0c5; font-size:13px; text-transform:capitalize; }
+.today-focus .day-status { display:inline-block; font-size:12px; padding:7px 12px; margin-bottom:18px; }
+.today-focus h1 { font-size:clamp(36px,5vw,64px); line-height:1.08; overflow-wrap:anywhere; }
+.today-details { max-width:900px; font-size:18px; line-height:1.7; color:#e0eadf; margin:24px 0; }
+.today-focus-bottom { display:flex; justify-content:space-between; align-items:center; gap:16px; margin-top:28px; }
+.today-focus-bottom strong { color:#c7f278; font-size:24px; }
+.loaded-file-line { display:flex; align-items:center; gap:16px; margin-bottom:22px; color:#738078; font-size:12px; overflow-wrap:anywhere; }
+.install-help { max-width:1000px; margin:18px auto 0; padding:15px 20px; background:#e6f2d6; border-radius:12px; color:#17352b; font-size:13px; line-height:1.6; }
+@media(max-width:720px) { .today-focus { padding:25px 22px; } .today-focus-heading,.today-focus-bottom { align-items:flex-start; flex-direction:column; } .today-details { font-size:16px; } .topbar-right { gap:6px; } .outline-button { padding:9px; font-size:11px; } .install-help { margin:15px; } }
