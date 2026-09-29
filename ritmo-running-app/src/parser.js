@@ -127,10 +127,28 @@ export function estimateKilometers(text) {
   return found ? Math.round(total * 10) / 10 : null;
 }
 
+export function colorCategory(fillColor) {
+  const hex = String(fillColor || "").slice(-6);
+  if (!/^[0-9A-F]{6}$/i.test(hex)) return null;
+  const [r, g, b] = [0, 2, 4].map(i => parseInt(hex.slice(i, i + 2), 16) / 255);
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), delta = max - min;
+  if (delta < .12 || max < .15) return null;
+  let hue = max === r ? ((g - b) / delta) % 6 : max === g ? (b - r) / delta + 2 : (r - g) / delta + 4;
+  hue = (hue * 60 + 360) % 360;
+  if (hue >= 165 && hue <= 255) return "lesion";
+  if (hue > 65 && hue < 165) return "rest";
+  if (hue >= 40 && hue <= 65) return "steady";
+  if (hue >= 15 && hue < 40) return "controlled";
+  if (hue < 15 || hue >= 345) return "hard";
+  return null;
+}
+
 function classify(title, description, fillColor) {
   const text = normalize(title + " " + description);
   const titleText = normalize(title);
   const color = fillColor.slice(-6);
+  const category = colorCategory(fillColor);
+  if (category) return { kind: category, label: ({ lesion: "Lesión", rest: "Descanso", steady: "Amarillo", controlled: "Naranja", hard: "Rojo" })[category] };
 
   if (color === "00FFFF" || /LESION|MOLESTIA/.test(titleText)) return { kind: "lesion", label: "Lesión" };
   if (color === "6D9EEB" || /VIAJE|CORDOBA|BARILOCHE/.test(text)) return { kind: "travel", label: "Viaje" };
@@ -226,7 +244,8 @@ export function parseRunningWorkbook(workbook, fileName = "") {
           description,
           kilometers,
           status,
-          rawColor
+          rawColor,
+          trainingColor: colorCategory(rawColor)
         });
       }
       week.days.sort((a, b) => a.date - b.date);
@@ -249,3 +268,4 @@ export function parseRunningWorkbook(workbook, fileName = "") {
     }
   };
 }
+

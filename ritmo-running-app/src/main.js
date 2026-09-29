@@ -3,6 +3,8 @@ import { readXlsx } from "./readXlsx.js";
 import "./style.css";
 
 const state = {
+  view: "calendar",
+  statsYear: "",
   fileName: "",
   weeks: [],
   months: [],
@@ -60,13 +62,60 @@ function selectedWeeks() {
   });
 }
 
+function countedKm(day) {
+  return ["steady", "controlled", "hard"].includes(day.trainingColor) ? (day.kilometers || 0) : 0;
+}
+
+function uniqueDays(weeks) {
+  return [...new Map(weeks.flatMap(week => week.days).map(day => [day.date.toDateString(), day])).values()];
+}
+
 function monthStatistics(weeks) {
-  const days = weeks.flatMap(week => week.days);
-  const kilometers = days.reduce((sum, day) => sum + (day.kilometers || 0), 0);
-  const sessions = days.filter(day => day.kilometers !== null ||
-    !["rest", "travel", "lesion", "gym", "empty"].includes(day.status.kind)).length;
-  const quality = days.filter(day => ["hard", "controlled"].includes(day.status.kind)).length;
-  return { kilometers: Math.round(kilometers * 10) / 10, sessions, weeks: weeks.length, quality };
+  const days = uniqueDays(weeks);
+  const training = days.filter(day => ["steady", "controlled", "hard"].includes(day.trainingColor));
+  return { kilometers: Math.round(days.reduce((sum, day) => sum + countedKm(day), 0) * 10) / 10,
+    sessions: training.length, weeks: weeks.length,
+    quality: training.filter(day => ["hard", "controlled"].includes(day.trainingColor)).length };
+}
+
+function viewNavigation() {
+  return '<nav class="view-navigation" aria-label="Vistas de PaceUp">' +
+    [["calendar", "Calendario"], ["year", "Estadísticas del año"], ["all", "Estadísticas generales"]].map(([key, label]) =>
+      '<button type="button" data-view="' + key + '" aria-pressed="' + (state.view === key) + '" class="month-tab' + (state.view === key ? ' is-active' : '') + '">' + label + '</button>').join('') + '</nav>';
+}
+
+function statsPage() {
+  const allDays = uniqueDays(state.weeks);
+  const years = [...new Set(allDays.map(day => day.date.getFullYear()))].sort((a,b) => b-a);
+  const days = state.view === "year" ? allDays.filter(day => day.date.getFullYear() === Number(state.statsYear)) : allDays;
+  const buckets = new Map();
+  days.forEach(day => {
+    const key = day.date.getFullYear() + '-' + String(day.date.getMonth() + 1).padStart(2, '0');
+    if (!buckets.has(key)) buckets.set(key, { date: day.date, days: [] });
+    buckets.get(key).days.push(day);
+  });
+  const months = [...buckets].sort(([a],[b]) => a.localeCompare(b));
+  const stats = monthStatistics([{ days }]);
+  const injury = days.filter(day => day.trainingColor === "lesion").length;
+  const rest = days.filter(day => day.trainingColor === "rest").length;
+  const unknown = days.filter(day => !day.trainingColor).length;
+  const maxKm = Math.max(1, ...months.map(([,m]) => m.days.reduce((sum,d) => sum + countedKm(d),0)));
+  const cards = [["Kilómetros del plan",formatKm(stats.kilometers)], ["Sesiones de running",stats.sessions], ["Días de lesión",injury], ["Días de descanso",rest]];
+  return '<main id="drop-target" class="main-shell">' + viewNavigation() +
+    '<section class="page-intro"><div><p class="eyebrow">PACEUP · ESTADÍSTICAS</p><h1>' + (state.view === "year" ? 'Tu año,<br><span>en perspectiva.</span>' : 'Todo tu plan,<br><span>en perspectiva.</span>') +
+    '</h1><p class="intro-copy">' + escapeHTML(state.fileName) + ' · Datos del plan, incluidas fechas futuras</p></div>' +
+    (state.view === "year" ? '<label class="year-picker">Año<select id="stats-year">' + years.map(y => '<option value="'+y+'"'+(Number(state.statsYear)===y?' selected':'')+'>'+y+'</option>').join('')+'</select></label>' : '<div class="stats-period">'+years.join(' · ')+'</div>') + '</section>' +
+    '<section class="metrics-grid">' + cards.map(([label,value],i) => '<article class="metric-card metric-'+i+'"><span class="metric-label">'+label+'</span><strong>'+escapeHTML(value)+'</strong></article>').join('') + '</section>' +
+    '<section class="calendar-panel"><h2>Kilómetros por mes</h2><p class="stats-note">Solo amarillo, naranja y rojo suman kilómetros y sesiones. Celeste y azul = lesión; verde = descanso. Los días sin color reconocido quedan fuera.</p>' +
+    '<div class="stats-bars">' + months.map(([,m]) => {
+      const km = m.days.reduce((sum,d) => sum + countedKm(d),0);
+      return '<div class="stats-bar-row"><span>'+escapeHTML(formatDate(m.date,{month:'long',year:'numeric'}))+'</span><div class="stats-bar-track"><span style="width:'+(km/maxKm*100)+'%"></span></div><strong>'+formatKm(km)+'</strong></div>';
+    }).join('') + '</div></section><section class="calendar-panel stats-breakdown"><h2>Distribución de días</h2><div class="stats-table-wrap"><table class="stats-table"><thead><tr><th>Categoría</th><th>Días</th><th>Kilómetros</th></tr></thead><tbody>' +
+    [["steady","Amarillo"],["controlled","Naranja"],["hard","Rojo"],["lesion","Celeste / azul · lesión"],["rest","Verde · descanso"]].map(([kind,label]) => {
+      const group = days.filter(d=>d.trainingColor===kind);
+      return '<tr><th scope="row">'+label+'</th><td>'+group.length+'</td><td>'+formatKm(group.reduce((sum,d)=>sum+countedKm(d),0))+'</td></tr>';
+    }).join('') + '<tr><th scope="row">Sin color reconocido</th><td>'+unknown+'</td><td>Excluidos</td></tr></tbody></table></div><p class="stats-note">Promedio por sesión con distancia: '+formatKm(stats.kilometers / (days.filter(d => countedKm(d)>0).length || 1))+'. Sesiones sin distancia: '+days.filter(d=>["steady","controlled","hard"].includes(d.trainingColor) && d.kilometers===null).length+'. Se muestra únicamente el período disponible en el Excel.</p></section>' +
+    (state.error ? '<p class="error-message" role="alert">'+escapeHTML(state.error)+'</p>' : '') + '</main>';
 }
 
 function weekRange(week) {
@@ -87,7 +136,7 @@ function dayCard(day) {
   const today = new Date();
   const isToday = day.date.toDateString() === today.toDateString();
   const detail = day.description ? '<p class="day-description">' + cleanText(day.description) + "</p>" : "";
-  const km = day.kilometers !== null ? '<span class="day-km">' + formatKm(day.kilometers) + "</span>" : "";
+  const km = ["steady", "controlled", "hard"].includes(day.trainingColor) && day.kilometers !== null ? '<span class="day-km">' + formatKm(day.kilometers) + "</span>" : "";
   return '<button class="day-card ' + toneClass(day) + '" type="button" data-day-id="' + escapeHTML(day.id) + '">' +
     '<div class="day-card-top"><span class="day-date">' + formatDate(day.date) + "</span>" +
     (isToday ? '<span class="today-label">Hoy</span>' : "") + "</div>" +
@@ -98,7 +147,7 @@ function dayCard(day) {
 }
 
 function weekCard(week, maximumKm) {
-  const distance = week.days.reduce((sum, day) => sum + (day.kilometers || 0), 0);
+  const distance = week.days.reduce((sum, day) => sum + countedKm(day), 0);
   const width = maximumKm ? Math.min(100, (distance / maximumKm) * 100) : 0;
   const note = week.note ? '<p class="week-note">' + cleanText(week.note) + "</p>" : "";
   return '<section class="week-section">' +
@@ -140,7 +189,7 @@ function modalMarkup(day) {
     '<span class="day-status ' + toneClass(day) + '">' + escapeHTML(day.status.label) + "</span>" +
     '<p class="modal-date">' + formatDate(day.date, { weekday: "long", day: "numeric", month: "long", year: "numeric" }) + "</p>" +
     '<h2 id="detail-title">' + cleanText(day.title) + "</h2>" +
-    (day.kilometers !== null ? '<div class="modal-distance">' + formatKm(day.kilometers) + "</div>" : "") +
+    (["steady", "controlled", "hard"].includes(day.trainingColor) && day.kilometers !== null ? '<div class="modal-distance">' + formatKm(day.kilometers) + "</div>" : "") +
     (day.description ? '<div class="modal-description">' + cleanText(day.description) + "</div>" :
       '<p class="modal-description muted">La planilla no tiene una descripción para este día.</p>') +
     '<p class="modal-footnote">El kilometraje se estima a partir de las distancias explícitas del entrenamiento.</p>' +
@@ -148,6 +197,15 @@ function modalMarkup(day) {
 }
 
 function bindEvents() {
+  document.querySelectorAll("[data-view]").forEach(button => button.addEventListener("click", () => {
+    state.view = button.dataset.view;
+    state.selectedDay = null;
+    render();
+  }));
+  document.querySelector("#stats-year")?.addEventListener("change", event => {
+    state.statsYear = event.target.value;
+    render();
+  });
   document.querySelectorAll("[data-open-file]").forEach(button =>
     button.addEventListener("click", () => document.querySelector("#excel-file").click())
   );
@@ -250,7 +308,7 @@ function render() {
   const actualMonth = state.months.find(month =>
     month.index === new Date().getMonth() && month.year === new Date().getFullYear()
   );
-  const maximumKm = Math.max(0, ...weeks.map(week => week.days.reduce((sum, day) => sum + (day.kilometers || 0), 0)));
+  const maximumKm = Math.max(0, ...weeks.map(week => week.days.reduce((sum, day) => sum + countedKm(day), 0)));
   const monthTabs = state.months.map(month => {
     const key = monthKey(month);
     const active = state.activeMonth === key;
@@ -270,7 +328,7 @@ function render() {
       (state.loading ? '<div class="loading-state"><span class="loader"></span><strong>Leyendo tu planilla...</strong><span>Un momento</span></div>' : emptyState()) +
       (state.error ? '<p class="error-message" role="alert">' + escapeHTML(state.error) + "</p>" : "") + "</main>";
   } else {
-    body = '<main id="drop-target" class="main-shell">' +
+    body = '<main id="drop-target" class="main-shell">' + viewNavigation() +
       '<section class="page-intro"><div><p class="eyebrow">PACEUP · PLAN DE ENTRENAMIENTO</p><h1>Tus entrenamientos,<br><span>semana a semana.</span></h1>' +
       '<p class="intro-copy">Una vista simple de tus sesiones, ritmos y carga semanal.</p></div>' +
       '<div class="file-card"><div class="file-icon">XLS</div><div class="file-meta"><strong>' + escapeHTML(state.fileName) +
@@ -287,16 +345,18 @@ function render() {
       '<div class="filters"><label class="search-box"><span class="search-icon" aria-hidden="true">⌕</span><span class="sr-only">Buscar entrenamiento</span>' +
       '<input id="search-input" type="search" placeholder="Buscar entrenamiento" value="' + escapeHTML(state.search) + '">' +
       (state.search ? '<button type="button" data-clear-search aria-label="Borrar búsqueda">×</button>' : "") + "</label></div></div>" +
-      '<div class="legend"><span><i class="legend-dot tone-lesion"></i>Lesión</span><span><i class="legend-dot tone-easy"></i>Suave</span>' +
-      '<span><i class="legend-dot tone-steady"></i>Extensivo</span><span><i class="legend-dot tone-controlled"></i>Controlado</span>' +
-      '<span><i class="legend-dot tone-hard"></i>Intenso</span></div>' +
+      '<div class="legend"><span><i class="legend-dot tone-lesion"></i>Lesión</span><span><i class="legend-dot tone-rest"></i>Descanso</span>' +
+      '<span><i class="legend-dot tone-steady"></i>Amarillo</span><span><i class="legend-dot tone-controlled"></i>Naranja</span>' +
+      '<span><i class="legend-dot tone-hard"></i>Rojo</span></div>' +
       (state.error ? '<p class="error-message" role="alert">' + escapeHTML(state.error) + "</p>" : "") +
       (weeks.length ? weeks.map(week => weekCard(week, maximumKm)).join("") :
         '<div class="no-results"><strong>No hay entrenamientos para mostrar.</strong><span>Probá con otro mes o cambiá la búsqueda.</span>' +
         (state.search ? '<button class="text-button" data-clear-search type="button">Borrar búsqueda</button>' : "") + "</div>") +
-      '<p class="estimate-note"><span>i</span> Los kilómetros se estiman leyendo las distancias escritas en cada sesión. Las sesiones sin distancia explícita no se suman.</p>' +
+      '<p class="estimate-note"><span>i</span> Los kilómetros se estiman leyendo las distancias escritas en cada sesión. Solo se suman días amarillos, naranjas y rojos con distancia explícita. Lesión y descanso quedan excluidos.</p>' +
       "</section></main>";
   }
+
+  if (state.weeks.length && state.view !== "calendar") body = statsPage();
 
   app.innerHTML = '<div class="app-frame">' + header + body +
     '<input id="excel-file" type="file" accept=".xlsx,.xlsm" hidden>' + modalMarkup(state.selectedDay) + "</div>";
@@ -339,6 +399,8 @@ async function loadFile(file) {
     state.fileName = file.name;
     state.weeks = parsed.weeks;
     state.months = parsed.months;
+    const years = [...new Set(uniqueDays(parsed.weeks).map(day => day.date.getFullYear()))];
+    state.statsYear = years.includes(new Date().getFullYear()) ? new Date().getFullYear() : Math.max(...years);
     const today = new Date();
     const todayMonth = parsed.months.find(month =>
       month.index === today.getMonth() && month.year === today.getFullYear()
@@ -356,3 +418,4 @@ async function loadFile(file) {
 }
 
 render();
+

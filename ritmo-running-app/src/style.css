@@ -491,3 +491,21 @@ h1 span { color: var(--lime); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+
+
+.view-navigation { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:22px; }
+.year-picker { display:grid; gap:8px; color:#c7f278; font-size:13px; }
+.year-picker select { padding:12px 20px; border:1px solid #718c75; border-radius:12px; background:#fff; color:#17352b; font-weight:750; }
+.stats-period { color:#c7f278; font-size:22px; }
+.stats-note { color:#65736a; font-size:12px; line-height:1.7; }
+.stats-bars { display:grid; gap:16px; margin:24px 0; }
+.stats-bar-row { display:grid; grid-template-columns:145px 1fr 90px; align-items:center; gap:16px; font-size:12px; }
+.stats-bar-row strong { text-align:right; }
+.stats-bar-track { height:20px; background:#eff4e9; border-radius:6px; overflow:hidden; }
+.stats-bar-track span { display:block; height:100%; background:linear-gradient(90deg,#17352b,#89b451); border-radius:6px; }
+.stats-breakdown { margin-top:22px; }
+.stats-table-wrap { overflow-x:auto; }
+.stats-table { width:100%; border-collapse:collapse; font-size:13px; }
+.stats-table th,.stats-table td { text-align:left; padding:15px 10px; border-bottom:1px solid #e5ebe4; }
+.stats-table thead { color:#738078; }
+@media(max-width:720px) { .stats-bar-row { grid-template-columns:95px 1fr 65px; gap:8px; font-size:10px; } }
