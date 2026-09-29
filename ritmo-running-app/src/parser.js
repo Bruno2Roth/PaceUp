@@ -161,6 +161,11 @@ function sourceYear(fileName) {
   return match ? Number(match[1]) : new Date().getFullYear();
 }
 
+function sheetYear(sheetName, fallbackYear) {
+  const match = String(sheetName || "").match(/\b(20\d{2})\b/);
+  return match ? Number(match[1]) : fallbackYear;
+}
+
 function getWeekNumber(label) {
   const match = String(label || "").match(/(?:S|SEMANA)\s*0*(\d+)/i);
   return match ? Number(match[1]) : null;
@@ -176,13 +181,14 @@ export function parseRunningWorkbook(workbook, fileName = "") {
   workbook.worksheets.forEach(worksheet => {
     const monthIndex = getMonthIndex(worksheet.name);
     if (monthIndex < 0) return;
+    const yearForSheet = sheetYear(worksheet.name, year);
     monthSheets.push(worksheet.name);
     const header = findCalendarHeader(worksheet);
     const weekLabelCol = header?.weekLabelCol || findWeekLabelColumn(worksheet);
     const firstDayCol = header?.firstDayCol || weekLabelCol + 1;
     const firstWeekRow = header ? header.headerRow + 1 : 1;
     if (!header) sheetsWithoutCalendar.push(worksheet.name);
-    months.push({ name: MONTHS[monthIndex], index: monthIndex, year });
+    months.push({ name: MONTHS[monthIndex], index: monthIndex, year: yearForSheet });
 
     for (let rowNumber = firstWeekRow; rowNumber <= worksheet.rowCount; rowNumber += 1) {
       const row = worksheet.getRow(rowNumber);
@@ -195,7 +201,7 @@ export function parseRunningWorkbook(workbook, fileName = "") {
         sheet: worksheet.name,
         month: MONTHS[monthIndex],
         monthIndex,
-        year,
+        year: yearForSheet,
         label: weekLabel.toUpperCase().replace(/\s+/g, ""),
         weekNumber: getWeekNumber(weekLabel),
         note: combineNotes(cellText(row.getCell(firstDayCol + 7)), cellText(detailRow.getCell(firstDayCol + 7))),
@@ -206,7 +212,7 @@ export function parseRunningWorkbook(workbook, fileName = "") {
         const col = firstDayCol + offset;
         const mainCell = row.getCell(col);
         const detailCell = detailRow.getCell(col);
-        const parsed = extractDay(mainCell, year, monthIndex);
+        const parsed = extractDay(mainCell, yearForSheet, monthIndex);
         if (!parsed) continue;
         const description = cellText(detailCell);
         const rawColor = getFillColor(mainCell);
