@@ -40,7 +40,13 @@ function formatDate(date, options = { weekday: "short", day: "numeric", month: "
 }
 
 function monthTitle(month) {
-  return month ? month.name.charAt(0).toUpperCase() + month.name.slice(1) + " " + month.year : "";
+  if (!month) return "";
+  const name = month.name.charAt(0).toUpperCase() + month.name.slice(1);
+  return month.year === new Date().getFullYear() ? name : name + " " + month.year;
+}
+
+function monthKey(month) {
+  return month.name + "-" + month.year;
 }
 
 function selectedWeeks() {
@@ -180,10 +186,15 @@ function bindEvents() {
     });
   }
 
-  const month = document.querySelector("#month-filter");
-  if (month) month.addEventListener("change", event => {
-    state.activeMonth = event.target.value;
-    render();
+  document.querySelectorAll("[data-month-key]").forEach(button => button.addEventListener("click", () => {
+    setActiveMonth(button.dataset.monthKey, true);
+  }));
+  document.querySelectorAll("[data-month-step]").forEach(button => button.addEventListener("click", () => {
+    moveMonth(Number(button.dataset.monthStep));
+  }));
+  const currentMonthButton = document.querySelector("[data-current-month]");
+  if (currentMonthButton) currentMonthButton.addEventListener("click", () => {
+    setActiveMonth(currentMonthButton.dataset.currentMonth, true);
   });
 
   const search = document.querySelector("#search-input");
@@ -212,14 +223,41 @@ function bindEvents() {
   }));
 }
 
+function setActiveMonth(key, center = false) {
+  state.activeMonth = key;
+  render();
+  if (!center) return;
+  scrollToMonth(key, "smooth");
+}
+
+function scrollToMonth(key, behavior = "auto") {
+  const activeButton = Array.from(document.querySelectorAll("[data-month-key]"))
+    .find(button => button.dataset.monthKey === key);
+  activeButton?.scrollIntoView({ behavior, block: "nearest", inline: "center" });
+}
+
+function moveMonth(step) {
+  const index = state.months.findIndex(month => monthKey(month) === state.activeMonth);
+  const nextMonth = state.months[index + step];
+  if (nextMonth) setActiveMonth(monthKey(nextMonth), true);
+}
+
 function render() {
+  const monthStripScroll = document.querySelector(".month-strip")?.scrollLeft;
   const weeks = selectedWeeks();
   const currentMonth = state.months.find(month => month.name + "-" + month.year === state.activeMonth);
+  const activeMonthIndex = state.months.findIndex(month => monthKey(month) === state.activeMonth);
+  const actualMonth = state.months.find(month =>
+    month.index === new Date().getMonth() && month.year === new Date().getFullYear()
+  );
   const maximumKm = Math.max(0, ...weeks.map(week => week.days.reduce((sum, day) => sum + (day.kilometers || 0), 0)));
-  const monthOptions = state.months.map(month =>
-    '<option value="' + escapeHTML(month.name + "-" + month.year) + '"' +
-    (state.activeMonth === month.name + "-" + month.year ? " selected" : "") + ">" + escapeHTML(monthTitle(month)) + "</option>"
-  ).join("");
+  const monthTabs = state.months.map(month => {
+    const key = monthKey(month);
+    const active = state.activeMonth === key;
+    return '<button class="month-tab' + (active ? " is-active" : "") + '" type="button" data-month-key="' + escapeHTML(key) +
+      '" aria-pressed="' + active + '" aria-label="Ver ' + escapeHTML(monthTitle(month)) + '">' +
+      '<span>' + escapeHTML(monthTitle(month)) + '</span></button>';
+  }).join("");
   const header = '<header class="topbar"><a class="brand" href="#" aria-label="PaceUp, inicio">' +
     '<span class="brand-symbol"><span></span><span></span><span></span></span><span>PaceUp</span></a>' +
     '<div class="topbar-right"><span class="local-badge"><span class="status-dot"></span>Se procesa en tu navegador</span>' +
@@ -238,13 +276,17 @@ function render() {
       '<div class="file-card"><div class="file-icon">XLS</div><div class="file-meta"><strong>' + escapeHTML(state.fileName) +
       '</strong><span>Procesado localmente · arrastrá otro para cambiar</span></div><button class="file-change" type="button" data-open-file aria-label="Cambiar Excel">↻</button></div></section>' +
       '<section class="metrics-grid" aria-label="Resumen del plan">' + metricsMarkup(weeks) + "</section>" +
-      '<section class="calendar-toolbar"><div><p class="eyebrow">CALENDARIO</p><h2>' +
-      escapeHTML(currentMonth ? monthTitle(currentMonth) : "Entrenamientos") + "</h2></div>" +
-      '<div class="filters"><label class="select-wrap"><span class="sr-only">Filtrar por mes</span><select id="month-filter">' + monthOptions +
-      "</select><span aria-hidden=\"true\">⌄</span></label>" +
-      '<label class="search-box"><span class="search-icon" aria-hidden="true">⌕</span><span class="sr-only">Buscar entrenamiento</span>' +
+      '<section class="calendar-panel"><div class="calendar-toolbar"><div class="calendar-heading"><p class="eyebrow">CALENDARIO DEL PLAN</p>' +
+      '<h2>Entrenamientos</h2></div><div class="month-navigation">' +
+      '<button class="month-arrow" type="button" data-month-step="-1" aria-label="Mes anterior"' + (activeMonthIndex <= 0 ? " disabled" : "") + '>‹</button>' +
+      '<div class="active-month"><span>MES SELECCIONADO</span><strong>' + escapeHTML(currentMonth ? monthTitle(currentMonth) : "Entrenamientos") + "</strong></div>" +
+      '<button class="month-arrow" type="button" data-month-step="1" aria-label="Mes siguiente"' + (activeMonthIndex >= state.months.length - 1 ? " disabled" : "") + '>›</button>' +
+      (actualMonth ? '<button class="today-button" type="button" data-current-month="' + escapeHTML(monthKey(actualMonth)) + '">Ir a este mes</button>' : "") +
+      '</div></div><div class="calendar-controls"><div class="month-strip-area"><span class="control-label">MESES DEL PLAN</span>' +
+      '<nav class="month-strip" aria-label="Meses del plan">' + monthTabs + '</nav></div>' +
+      '<div class="filters"><label class="search-box"><span class="search-icon" aria-hidden="true">⌕</span><span class="sr-only">Buscar entrenamiento</span>' +
       '<input id="search-input" type="search" placeholder="Buscar entrenamiento" value="' + escapeHTML(state.search) + '">' +
-      (state.search ? '<button type="button" data-clear-search aria-label="Borrar búsqueda">×</button>' : "") + "</label></div></section>" +
+      (state.search ? '<button type="button" data-clear-search aria-label="Borrar búsqueda">×</button>' : "") + "</label></div></div>" +
       '<div class="legend"><span><i class="legend-dot tone-lesion"></i>Lesión</span><span><i class="legend-dot tone-easy"></i>Suave</span>' +
       '<span><i class="legend-dot tone-steady"></i>Extensivo</span><span><i class="legend-dot tone-controlled"></i>Controlado</span>' +
       '<span><i class="legend-dot tone-hard"></i>Intenso</span></div>' +
@@ -253,12 +295,14 @@ function render() {
         '<div class="no-results"><strong>No hay entrenamientos para mostrar.</strong><span>Probá con otro mes o cambiá la búsqueda.</span>' +
         (state.search ? '<button class="text-button" data-clear-search type="button">Borrar búsqueda</button>' : "") + "</div>") +
       '<p class="estimate-note"><span>i</span> Los kilómetros se estiman leyendo las distancias escritas en cada sesión. Las sesiones sin distancia explícita no se suman.</p>' +
-      "</main>";
+      "</section></main>";
   }
 
   app.innerHTML = '<div class="app-frame">' + header + body +
     '<input id="excel-file" type="file" accept=".xlsx,.xlsm" hidden>' + modalMarkup(state.selectedDay) + "</div>";
   bindEvents();
+  const monthStrip = document.querySelector(".month-strip");
+  if (monthStrip && monthStripScroll !== undefined) monthStrip.scrollLeft = monthStripScroll;
 }
 
 async function loadFile(file) {
@@ -295,7 +339,10 @@ async function loadFile(file) {
     state.fileName = file.name;
     state.weeks = parsed.weeks;
     state.months = parsed.months;
-    const todayMonth = parsed.months.find(month => month.index === new Date().getMonth());
+    const today = new Date();
+    const todayMonth = parsed.months.find(month =>
+      month.index === today.getMonth() && month.year === today.getFullYear()
+    );
     const preferredMonth = todayMonth || parsed.months[parsed.months.length - 1];
     state.activeMonth = preferredMonth.name + "-" + preferredMonth.year;
     state.search = "";
@@ -304,6 +351,7 @@ async function loadFile(file) {
   } finally {
     state.loading = false;
     render();
+    scrollToMonth(state.activeMonth);
   }
 }
 
