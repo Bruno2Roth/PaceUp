@@ -4,6 +4,8 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import { zipSync, strToU8 } from 'fflate';
 import { readXlsx } from '../src/readXlsx.js';
+import { DEFAULT_LOCATION, PILAR_LOCATION, readWeatherPreferences, saveWeatherPreferences } from '../src/weather.js';
+import { dayWeatherMarkup, weatherPanelMarkup } from '../src/weatherView.js';
 import { sessionDistance, estimateKilometers } from '../src/distance.js';
 import { parseRunningWorkbook, colorCategory } from '../src/parser.js';
 import { dateKey, trainingKilometers, weeklyLoad, planSignature, planChanged, isActivity, historicalSessionRecords } from '../src/training.js';
@@ -73,6 +75,8 @@ function appHarness(database, { failSave = false } = {}) {
     window: { matchMedia: () => ({matches:false}), addEventListener() {} }, navigator:{},
     Intl, Date, Map, Set, Object, Math, ArrayBuffer, File, setInterval() {},
     dateKey, weeklyLoad, trainingKilometers, planSignature, planChanged, isActivity, historicalSessionRecords, parseRunningWorkbook,
+    DEFAULT_LOCATION,PILAR_LOCATION,readWeatherPreferences,saveWeatherPreferences,dayWeatherMarkup,weatherPanelMarkup,
+    createWeatherClient: () => ({load:async()=>{throw Error('No network in test');}}),
     readXlsx(buffer) { const n = new Uint8Array(buffer)[0]; if (!n) throw Error('Invalid workbook'); return fixture(n); },
     saveWorkbook: async (name,buffer) => { database.workbook = {name,buffer}; },
     readWorkbook: async () => database.workbook,

@@ -2,7 +2,15 @@ import { dateKey, weeklyLoad, trainingKilometers, planSignature, planChanged, is
 import { readSessionRecords, seedHistoricalSessions, updateSessionRecord, saveWorkbook, readWorkbook, deleteWorkbook } from "./storage.js";
 import { parseRunningWorkbook } from "./parser.js";
 import { readXlsx } from "./readXlsx.js";
+import { DEFAULT_LOCATION, PILAR_LOCATION, readWeatherPreferences, saveWeatherPreferences, createWeatherClient } from "./weather.js";
+import { dayWeatherMarkup, weatherPanelMarkup } from "./weatherView.js";
 import "./style.css";
+
+const weatherClient = createWeatherClient();
+const weather = { ...readWeatherPreferences(), record: null, source: '', loading: false, locating: false, error: false, message: '' };
+let weatherRequest = 0;
+let lastWeatherAttempt = 0;
+let geolocationRequest = 0;
 
 const state = {
   records: {},
@@ -33,6 +41,7 @@ window.addEventListener('beforeinstallprompt', event => {
   state.installHelp = '';
   render();
 });
+window.addEventListener('online', () => { if (!weather.loading) refreshWeather(); });
 window.addEventListener('appinstalled', () => {
   isInstalled = true;
   installPrompt = null;
@@ -133,7 +142,7 @@ function nearbyMarkup(today, days) {
       (day ? '<div class="nearby-status"><span class="day-status">' + escapeHTML(day.status.label) + '</span>' + doneBadge(day) + '</div><h2>' + cleanText(day.title) + '</h2>' +
         '<p class="nearby-distance">' + (countedKm(day) > 0 ? formatKm(countedKm(day)) + ' en el plan' : ['rest', 'lesion'].includes(day.trainingColor) ? 'Sin kilómetros de running' : 'Sin distancia contabilizada') + '</p>' +
         (planChanged(day, sessionRecord(day)) ? '<p class="record-warning">El plan cambió; tu registro se conserva.</p>' : '') +
-        '<div class="nearby-actions"><button class="text-button" type="button" data-day-id="' + escapeHTML(day.id) + '">Ver detalle ↗</button>' + doneButton(day) + '</div>' : '<h2>Sin sesión cargada</h2><p class="stats-note">El Excel no incluye esta fecha.</p>') + '</article>';
+        dayWeatherMarkup(weather, dateKey(date)) + '<div class="nearby-actions"><button class="text-button" type="button" data-day-id="' + escapeHTML(day.id) + '">Ver detalle ↗</button>' + doneButton(day) + '</div>' : '<h2>Sin sesión cargada</h2><p class="stats-note">El Excel no incluye esta fecha.</p>') + '</article>';
   }).join('') + '</section>';
 }
 
@@ -143,13 +152,13 @@ function todayMarkup() {
   const day = days.find(item => dateKey(item.date) === dateKey(today));
   const next = days.filter(item => item.date > today && ["steady", "controlled", "hard"].includes(item.trainingColor)).sort((a,b) => a.date - b.date)[0];
   const date = formatDate(today, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-  return '<section class="today-focus ' + (day ? toneClass(day) : '') + '" aria-labelledby="today-title"><div class="today-focus-heading"><p class="eyebrow">TU ENTRENAMIENTO DE HOY</p><span>' + escapeHTML(date) + '</span></div>' +
+  return '<div class="today-weather-grid"><section class="today-focus ' + (day ? toneClass(day) : '') + '" aria-labelledby="today-title"><div class="today-focus-heading"><p class="eyebrow">TU ENTRENAMIENTO DE HOY</p><span>' + escapeHTML(date) + '</span></div>' +
     (day ? '<div class="nearby-status"><span class="day-status">' + escapeHTML(day.status.label) + '</span>' + doneBadge(day) + '</div><h1 id="today-title">' + cleanText(day.title) + '</h1>' +
       (day.description ? '<p class="today-details">' + cleanText(day.description) + '</p>' : '') +
       planChangeMarkup(day) +
       '<div class="today-focus-bottom"><strong>' + (["lesion", "rest"].includes(day.trainingColor) ? 'Sin kilómetros de running' : countedKm(day) > 0 ? formatKm(day.kilometers) + ' en el plan' : 'Sin distancia contabilizada') +
       '</strong><div class="nearby-actions">' + doneButton(day) + '<button class="primary-button" type="button" data-day-id="' + escapeHTML(day.id) + '">Ver detalle y nota ↗</button></div></div>' :
-      '<h1 id="today-title">Hoy no tiene una sesión cargada</h1><p class="today-details">El Excel no incluye un entrenamiento para esta fecha. Podés explorar los meses disponibles debajo.</p>') + '</section>' + nearbyMarkup(today, days) +
+      '<h1 id="today-title">Hoy no tiene una sesión cargada</h1><p class="today-details">El Excel no incluye un entrenamiento para esta fecha. Podés explorar los meses disponibles debajo.</p>') + '</section>' + weatherPanelMarkup(weather, dateKey(today), {title:'Clima para hoy', controls:true}) + '</div>' + nearbyMarkup(today, days) +
       (next ? '<button class="next-session" type="button" data-day-id="' + escapeHTML(next.id) + '"><span>PRÓXIMA SESIÓN DE RUNNING</span><strong>' + formatDate(next.date) + ' · ' + escapeHTML(next.title) + '</strong><span aria-hidden="true">↗</span></button>' : '');
 }
 
@@ -229,7 +238,7 @@ function dayCard(day) {
     (isToday ? '<span class="today-label">Hoy</span>' : "") + "</div>" +
     '<span class="day-status">' + escapeHTML(day.status.label) + "</span>" + doneBadge(day) +
     '<strong class="day-title">' + cleanText(day.title) + "</strong>" +
-    detail + (planChanged(day, sessionRecord(day)) ? '<span class="day-change">Plan actualizado · registro conservado</span>' : '') + (day.distance?.warning ? '<span class="day-change">Revisar distancia</span>' : '') + '<span class="day-card-bottom">' + km + '<span class="open-hint">Ver detalle <span aria-hidden="true">↗</span></span></span>' +
+    detail + dayWeatherMarkup(weather, dateKey(day.date)) + (planChanged(day, sessionRecord(day)) ? '<span class="day-change">Plan actualizado · registro conservado</span>' : '') + (day.distance?.warning ? '<span class="day-change">Revisar distancia</span>' : '') + '<span class="day-card-bottom">' + km + '<span class="open-hint">Ver detalle <span aria-hidden="true">↗</span></span></span>' +
     "</button>";
 }
 
@@ -281,7 +290,7 @@ function modalMarkup(day) {
     (['steady','controlled','hard'].includes(day.trainingColor) && day.kilometers !== null ? '<div class="modal-distance">' + formatKm(day.kilometers) + ' en el plan</div>' : '') +
     (day.description ? '<div class="modal-description">' + cleanText(day.description) + '</div>' : '<p class="modal-description muted">La planilla no tiene una descripción para este día.</p>') +
     (distance?.warning ? '<p class="record-warning">' + escapeHTML(distance.warning) + '</p>' : distance?.parts?.length ? '<details class="distance-breakdown"><summary>Cómo se calculó la distancia</summary><p>' + escapeHTML(distance.source) + '</p><ul>' + distance.parts.map(part => '<li>' + escapeHTML(part.label) + ' = ' + formatKm(part.kilometers) + '</li>').join('') + '</ul><p>El título y la descripción no se suman dos veces.</p></details>' : '') +
-    planChangeMarkup(day) + '<div class="session-controls">' + doneButton(day) + '</div><label class="session-note-label" for="session-note">Tu nota del entrenamiento</label><textarea id="session-note" rows="3" maxlength="3000" placeholder="Sensaciones, cambios o cómo salió…"' + (!state.recordsReady || state.savingSession ? ' disabled' : '') + '>' + escapeHTML(note) + '</textarea><button class="outline-button" type="button" data-save-note="' + escapeHTML(day.id) + '"' + (!state.recordsReady || state.savingSession ? ' disabled' : '') + '>Guardar nota</button><p class="modal-footnote">Las marcas de hecha y las notas se guardan en este navegador por fecha y se conservan al actualizar el Excel.</p></section></div>';
+    planChangeMarkup(day) + '<details class="modal-weather"><summary>Ver clima de este día</summary>' + weatherPanelMarkup(weather, dateKey(day.date)) + '</details><div class="session-controls">' + doneButton(day) + '</div><label class="session-note-label" for="session-note">Tu nota del entrenamiento</label><textarea id="session-note" rows="3" maxlength="3000" placeholder="Sensaciones, cambios o cómo salió…"' + (!state.recordsReady || state.savingSession ? ' disabled' : '') + '>' + escapeHTML(note) + '</textarea><button class="outline-button" type="button" data-save-note="' + escapeHTML(day.id) + '"' + (!state.recordsReady || state.savingSession ? ' disabled' : '') + '>Guardar nota</button><p class="modal-footnote">Las marcas de hecha y las notas se guardan en este navegador por fecha y se conservan al actualizar el Excel.</p></section></div>';
 }
 
 async function saveDayRecord(day, patch) {
@@ -297,7 +306,76 @@ async function saveDayRecord(day, patch) {
   } finally { state.savingSession = false; render(); }
 }
 
+async function refreshWeather({ force = false } = {}) {
+  const request = ++weatherRequest;
+  lastWeatherAttempt = Date.now();
+  weather.loading = true;
+  weather.error = false;
+  renderWeather();
+  try {
+    const result = await weatherClient.load(weather.location, { force, onCache(record) {
+      if (request !== weatherRequest) return;
+      weather.record = record;
+      weather.source = 'cache';
+      renderWeather();
+    }});
+    if (request !== weatherRequest) return;
+    Object.assign(weather, { record: result.record, source: result.source, error: Boolean(result.error) });
+    if (!result.persisted) weather.message = 'El clima está disponible, pero no se pudo guardar para verlo al volver.';
+  } catch {
+    if (request === weatherRequest) weather.error = true;
+  } finally {
+    if (request === weatherRequest) { weather.loading = false; renderWeather(); }
+  }
+}
+
+// Update only weather surfaces so an async response never interrupts a note,
+// modal, file upload, scroll position, or a focused calendar control.
+function renderWeather() {
+  document.querySelectorAll('[data-weather-surface]').forEach(surface => {
+    const date = surface.dataset.weatherDate;
+    if (surface.dataset.weatherSurface === 'compact') surface.outerHTML = dayWeatherMarkup(weather, date);
+    else surface.outerHTML = weatherPanelMarkup(weather, date, { title: surface.dataset.weatherTitle, controls: surface.dataset.weatherControls === 'true' });
+  });
+  bindWeatherEvents();
+}
+function changeWeatherLocation(location) {
+  geolocationRequest += 1;
+  weather.locating = false;
+  weatherRequest += 1;
+  Object.assign(weather, {location,record:null,source:'',error:false,message:''});
+  if (!saveWeatherPreferences({location:weather.location,hour:weather.hour})) weather.message = 'No se pudo guardar la ubicación en este navegador.';
+  refreshWeather();
+}
+function bindWeatherEvents() {
+  document.querySelector('#weather-hour')?.addEventListener('change', event => {
+    weather.hour = Number(event.target.value);
+    if (!saveWeatherPreferences({location:weather.location,hour:weather.hour})) weather.message = 'No se pudo guardar la hora en este navegador.';
+    renderWeather();
+  });
+  document.querySelector('#weather-location')?.addEventListener('change', event => {
+    if (event.target.value === 'buenos-aires') changeWeatherLocation({...DEFAULT_LOCATION});
+    if (event.target.value === 'pilar') changeWeatherLocation({...PILAR_LOCATION});
+  });
+  document.querySelector('[data-weather-refresh]')?.addEventListener('click', () => refreshWeather({force:true}));
+  document.querySelector('[data-weather-geolocate]')?.addEventListener('click', () => {
+    if (weather.locating) return;
+    if (!navigator.geolocation) { weather.message = 'Este navegador no permite consultar tu ubicación. Elegí una ciudad.'; renderWeather(); return; }
+    const request = ++geolocationRequest;
+    weather.locating = true;weather.message = '';renderWeather();
+    navigator.geolocation.getCurrentPosition(position => {
+      if (request !== geolocationRequest) return;
+      weather.locating = false;
+      changeWeatherLocation({name:'Mi ubicación',latitude:Math.round(position.coords.latitude*100)/100,longitude:Math.round(position.coords.longitude*100)/100,timezone:'auto'});
+    }, () => {
+      if (request !== geolocationRequest) return;
+      weather.locating = false;weather.message = 'No se pudo acceder a tu ubicación. Se mantiene el lugar seleccionado.';renderWeather();
+    }, {timeout:10000,maximumAge:300000,enableHighAccuracy:false});
+  });
+}
+
 function bindEvents() {
+  bindWeatherEvents();
   document.querySelectorAll('[data-toggle-done]').forEach(button => button.addEventListener('click', () => {
     const day = uniqueDays(state.weeks).find(day => day.id === button.dataset.toggleDone);
     if (!day) return;
@@ -610,9 +688,11 @@ async function restoreSavedWorkbook() {
   }
 }
 restoreSavedWorkbook();
+refreshWeather();
 
 let lastToday = new Date().toDateString();
 setInterval(() => {
   const current = new Date().toDateString();
   if (current !== lastToday) { lastToday = current; render(); }
+  if (Date.now() - lastWeatherAttempt >= 60 * 60 * 1000 && !weather.loading) refreshWeather();
 }, 60000);
