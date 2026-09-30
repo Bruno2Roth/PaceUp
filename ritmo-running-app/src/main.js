@@ -1,8 +1,10 @@
+import { saveWorkbook, readWorkbook, deleteWorkbook } from "./storage.js";
 import { parseRunningWorkbook } from "./parser.js";
 import { readXlsx } from "./readXlsx.js";
 import "./style.css";
 
 const state = {
+  storageMessage: "",
   installHelp: "",
   view: "calendar",
   statsYear: "",
@@ -203,13 +205,10 @@ function metricsMarkup(weeks) {
 }
 
 function emptyState() {
-  return '<div class="empty-state">' +
-    '<div class="empty-illustration" aria-hidden="true"><span class="track-ring"></span><span class="track-dot"></span><span class="shoe-mark">↗</span></div>' +
-    '<p class="eyebrow">PACEUP · TU PLAN DE RUNNING</p><h2>Arrastrá tu Excel acá</h2>' +
-    '<p class="empty-copy">Visualizá tus semanas, sesiones, kilómetros y notas en un calendario simple.</p>' +
-    '<button class="primary-button" type="button" data-open-file><span aria-hidden="true">＋</span> Elegir archivo Excel</button>' +
-    '<p class="file-hint">Compatible con .xlsx y .xlsm · El archivo se procesa en este navegador</p>' +
-    "</div>";
+  return '<section class="welcome-layout"><div class="welcome-copy"><p class="eyebrow">TU RUNNING, CON PERSPECTIVA</p><h1>Cada día cuenta.<br><span>Tu plan también.</span></h1><p class="welcome-description">Convertí tu Excel en un espacio claro para entrenar: hoy, tus próximas semanas y todo lo que tenés por delante.</p>' +
+    '<div class="welcome-features"><span><i>01</i>El entrenamiento de hoy, protagonista</span><span><i>02</i>Todos tus meses, a un toque</span><span><i>03</i>Tu carga y estadísticas en perspectiva</span></div></div>' +
+    '<div class="welcome-import"><div class="welcome-preview" aria-hidden="true"><div class="preview-top"><span>ASÍ SE VE TU PLAN</span><span>↗</span></div><div class="preview-title">Tu próximo paso.</div><div class="preview-lines"><i></i><i></i></div><div class="preview-week">' + ['L','M','M','J','V','S','D'].map((d,i)=>'<span class="preview-day preview-day-'+i+'">'+d+'<i></i></span>').join('') + '</div></div>' +
+    '<div class="empty-state"><p class="eyebrow">EMPEZÁ CON TU PLAN</p><h2>Arrastrá tu Excel acá</h2><p class="empty-copy">O elegilo desde tu dispositivo para ver tus entrenamientos.</p><button class="primary-button" type="button" data-open-file>＋ Elegir archivo Excel</button><p class="file-hint">.xlsx o .xlsm · Hasta 25 MB</p><p class="welcome-privacy">Tu archivo se procesa en este navegador.</p></div></div></section>';
 }
 
 function modalMarkup(day) {
@@ -228,6 +227,17 @@ function modalMarkup(day) {
 }
 
 function bindEvents() {
+  document.querySelector('[data-forget-file]')?.addEventListener('click', async () => {
+    if (state.loading) return;
+    state.loading = true;
+    render();
+    try {
+      await deleteWorkbook();
+      Object.assign(state, { fileName: '', weeks: [], months: [], activeMonth: '', search: '', selectedDay: null, view: 'calendar', error: '', storageMessage: 'Excel eliminado de este navegador.' });
+    } catch {
+      state.storageMessage = 'No se pudo borrar el Excel guardado. Volvé a intentarlo.';
+    } finally { state.loading = false; render(); }
+  });
   document.querySelector('[data-install]')?.addEventListener('click', async () => {
     if (!installPrompt) {
       state.installHelp = 'En Android, abrí PaceUp en Chrome y usá el menú ⋮ → Instalar app o Agregar a la pantalla principal. Si todavía no aparece, volvé a intentarlo después de navegar por la página.';
@@ -255,7 +265,7 @@ function bindEvents() {
     render();
   });
   document.querySelectorAll("[data-open-file]").forEach(button =>
-    button.addEventListener("click", () => document.querySelector("#excel-file").click())
+    button.addEventListener("click", () => { if (!state.loading) document.querySelector("#excel-file").click(); })
   );
   document.querySelector("#excel-file").addEventListener("change", event => {
     const file = event.target.files && event.target.files[0];
@@ -368,7 +378,7 @@ function render() {
     '<span class="brand-symbol"><span></span><span></span><span></span></span><span>PaceUp</span></a>' +
     '<div class="topbar-right">' + (isInstalled ? '' : '<button class="outline-button install-button" type="button" data-install>Instalar app</button>') + '<span class="local-badge"><span class="status-dot"></span>Se procesa en tu navegador</span>' +
     '<button class="outline-button" type="button" data-open-file>' +
-    (state.fileName ? "Cambiar Excel" : "Importar Excel") + "</button></div></header>";
+    (state.fileName ? "Cambiar Excel" : "Importar Excel") + "</button>" + (state.fileName ? '<button class="outline-button" type="button" data-forget-file' + (state.loading ? ' disabled' : '') + '>Borrar Excel</button>' : '') + "</div></header>";
 
   let body;
   if (!state.weeks.length) {
@@ -403,14 +413,15 @@ function render() {
 
   if (state.weeks.length && state.view !== "calendar") body = statsPage();
 
-  app.innerHTML = '<div class="app-frame">' + header + (state.installHelp ? '<p class="install-help" role="status">' + escapeHTML(state.installHelp) + '</p>' : '') + body +
+  app.innerHTML = '<div class="app-frame">' + header + (state.storageMessage ? '<p class="install-help" role="status">' + escapeHTML(state.storageMessage) + '</p>' : '') + (state.installHelp ? '<p class="install-help" role="status">' + escapeHTML(state.installHelp) + '</p>' : '') + body +
     '<input id="excel-file" type="file" accept=".xlsx,.xlsm" hidden>' + modalMarkup(state.selectedDay) + "</div>";
   bindEvents();
   const monthStrip = document.querySelector(".month-strip");
   if (monthStrip && monthStripScroll !== undefined) monthStrip.scrollLeft = monthStripScroll;
 }
 
-async function loadFile(file) {
+async function loadFile(file, { restore = false } = {}) {
+  if (state.loading && !restore) return;
   const extension = file.name.split(".").pop().toLowerCase();
   if (!["xlsx", "xlsm"].includes(extension)) {
     state.error = "Elegí un archivo .xlsx o .xlsm. Los archivos .xls antiguos todavía no son compatibles.";
@@ -455,6 +466,16 @@ async function loadFile(file) {
     const preferredMonth = todayMonth || parsed.months[parsed.months.length - 1];
     state.activeMonth = preferredMonth.name + "-" + preferredMonth.year;
     state.search = "";
+    if (restore) {
+      state.storageMessage = 'Tu Excel guardado se recuperó en este navegador.';
+    } else {
+      try {
+        await saveWorkbook(file.name, buffer);
+        state.storageMessage = 'Excel guardado en este navegador. Se abrirá automáticamente la próxima vez.';
+      } catch {
+        state.storageMessage = 'El plan está abierto, pero no se pudo guardar en este navegador. Tendrás que cargarlo de nuevo al volver.';
+      }
+    }
   } catch (error) {
     state.error = error?.message || "No se pudo leer el archivo. Probá con otra copia de Excel.";
   } finally {
@@ -464,8 +485,23 @@ async function loadFile(file) {
   }
 }
 
-render();
-
+async function restoreSavedWorkbook() {
+  state.loading = true;
+  render();
+  try {
+    const saved = await readWorkbook();
+    if (saved) {
+      if (typeof saved.name !== 'string' || !(saved.buffer instanceof ArrayBuffer)) throw new Error('Archivo guardado inválido');
+      await loadFile(new File([saved.buffer], saved.name), { restore: true });
+    }
+  } catch {
+    state.storageMessage = 'No se pudo recuperar el Excel guardado. Podés volver a cargarlo.';
+  } finally {
+    state.loading = false;
+    render();
+  }
+}
+restoreSavedWorkbook();
 
 let lastToday = new Date().toDateString();
 setInterval(() => {

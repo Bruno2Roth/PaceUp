@@ -522,3 +522,28 @@ h1 span { color: var(--lime); }
 .loaded-file-line { display:flex; align-items:center; gap:16px; margin-bottom:22px; color:#738078; font-size:12px; overflow-wrap:anywhere; }
 .install-help { max-width:1000px; margin:18px auto 0; padding:15px 20px; background:#e6f2d6; border-radius:12px; color:#17352b; font-size:13px; line-height:1.6; }
 @media(max-width:720px) { .today-focus { padding:25px 22px; } .today-focus-heading,.today-focus-bottom { align-items:flex-start; flex-direction:column; } .today-details { font-size:16px; } .topbar-right { gap:6px; } .outline-button { padding:9px; font-size:11px; } .install-help { margin:15px; } }
+
+.welcome-layout { width:100%; display:grid; grid-template-columns:1.15fr 1fr; align-items:center; gap:70px; padding:45px 15px; }
+.welcome-copy h1 { color:#17352b; font-size:clamp(44px,5.2vw,76px); line-height:1.04; }
+.welcome-copy h1 span { color:#668d3e; }
+.welcome-description { max-width:470px; margin:26px 0; color:#738078; font-size:17px; line-height:1.8; }
+.welcome-features { display:grid; gap:18px; margin-top:34px; }
+.welcome-features > span { display:flex; align-items:center; gap:13px; font-size:13px; color:#405d4c; }
+.welcome-features i { font-style:normal; font-size:10px; font-weight:800; background:#e4eddc; border-radius:8px; padding:9px; color:#668d3e; }
+.welcome-import { width:100%; max-width:520px; justify-self:end; }
+.welcome-import .empty-state { width:100%; padding:32px 24px; border-radius:0 0 23px 23px; border-top:0; }
+.welcome-preview { padding:27px; background:#fff; border:1px solid #e0e8dc; border-radius:23px 23px 0 0; box-shadow:0 20px 50px #17352b0d; }
+.preview-top { display:flex; justify-content:space-between; color:#7d907e; font-size:9px; font-weight:800; letter-spacing:.14em; }
+.preview-title { margin-top:19px; font-size:27px; font-weight:750; color:#17352b; letter-spacing:-1px; }
+.preview-lines { display:grid; gap:8px; margin:17px 0 24px; }
+.preview-lines i { height:6px; width:73%; border-radius:5px; background:#ebf0e6; }
+.preview-lines i:last-child { width:48%; }
+.preview-week { display:grid; grid-template-columns:repeat(7,1fr); gap:8px; }
+.preview-day { display:grid; justify-items:center; gap:10px; font-size:9px; color:#879188; }
+.preview-day i { display:block; width:100%; height:36px; background:#f2e7b2; border-radius:8px; }
+.preview-day-2 i,.preview-day-4 i { background:#dfecd4; }
+.preview-day-5 i { background:#f4d3b1; }
+.welcome-privacy { margin:15px 0 0; color:#b9c8bd; font-size:11px; }
+@media(max-width:900px){ .welcome-layout { gap:30px; } }
+@media(max-width:720px){ .welcome-layout { grid-template-columns:1fr; padding:15px 0; gap:30px; } .welcome-copy h1 { font-size:44px; } .welcome-description { font-size:15px; margin:18px 0; } .welcome-features { gap:12px; margin-top:20px; } .welcome-import { max-width:none; } .welcome-preview { padding:22px; } }
+@media(prefers-reduced-motion:reduce){ *,*::before,*::after { animation-duration:.01ms!important; transition-duration:.01ms!important; scroll-behavior:auto!important; } }
