@@ -2,9 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import { zipSync, strToU8 } from 'fflate';
+import { readXlsx } from '../src/readXlsx.js';
 import { sessionDistance, estimateKilometers } from '../src/distance.js';
 import { parseRunningWorkbook, colorCategory } from '../src/parser.js';
-import { dateKey, trainingKilometers, weeklyLoad, planSignature, planChanged } from '../src/training.js';
+import { dateKey, trainingKilometers, weeklyLoad, planSignature, planChanged, isActivity, historicalSessionRecords } from '../src/training.js';
 
 const cases = [
   ['2K EC + 6×1000 m + 2K VC', '2K EC + 6×1000 m + 2K VC', 10],
@@ -70,12 +72,22 @@ function appHarness(database, { failSave = false } = {}) {
     }, querySelectorAll() { return []; } },
     window: { matchMedia: () => ({matches:false}), addEventListener() {} }, navigator:{},
     Intl, Date, Map, Set, Object, Math, ArrayBuffer, File, setInterval() {},
-    dateKey, weeklyLoad, trainingKilometers, planSignature, planChanged, parseRunningWorkbook,
+    dateKey, weeklyLoad, trainingKilometers, planSignature, planChanged, isActivity, historicalSessionRecords, parseRunningWorkbook,
     readXlsx(buffer) { const n = new Uint8Array(buffer)[0]; if (!n) throw Error('Invalid workbook'); return fixture(n); },
     saveWorkbook: async (name,buffer) => { database.workbook = {name,buffer}; },
     readWorkbook: async () => database.workbook,
     deleteWorkbook: async () => { database.workbook = null; },
     readSessionRecords: async () => Object.values(database.records),
+    seedHistoricalSessions: async candidates => {
+      let marked = 0;
+      for (const candidate of candidates) {
+        const old = database.records[candidate.date];
+        if (old?.historicalCutoff === candidate.historicalCutoff) continue;
+        database.records[candidate.date] = old?.done ? {...candidate,...old,historicalCutoff:candidate.historicalCutoff} : {...old,...candidate};
+        if (!old?.done) marked++;
+      }
+      return marked;
+    },
     updateSessionRecord: async (date,patch) => {
       if (failSave) throw Error('Storage quota');
       const record = {...database.records[date],...patch,date}; database.records[date]=record; return record;
@@ -125,4 +137,43 @@ test('yesterday and tomorrow cross month/year boundaries and use calendar dates'
   a.run(`state.weeks=[{days:[{id:'a',date:new Date(2026,11,31),title:'8K',description:'',kilometers:8,status:{kind:'steady',label:'Amarillo'},trainingColor:'steady'},{id:'b',date:new Date(2027,0,2),title:'10K',description:'',kilometers:10,status:{kind:'hard',label:'Rojo'},trainingColor:'hard'}]}]`);
   const html=a.run(`nearbyMarkup(new Date(2027,0,1),uniqueDays(state.weeks))`);
   assert.match(html,/2026-12-31/); assert.match(html,/2027-01-02/); assert.match(html,/Ayer/);assert.match(html,/Mañana/);
+});
+
+test('historical import includes cutoff and older years, excludes future dates, rest and both injury colors', () => {
+  const make = (date, kind) => ({date:new Date(...date), title:'Actividad', description:'', kilometers:8, trainingColor:kind, status:{kind}});
+  const days = [make([2026,8,30],'steady'),make([2026,9,1],'hard'),make([2027,0,1],'controlled'),
+    make([2025,11,31],'hard'),make([2026,8,29],'rest'),make([2026,8,28],'lesion'),
+    {...make([2026,8,27],null),status:{kind:'gym'}}, {...make([2026,8,26],null),status:{kind:'empty'}}];
+  assert.deepEqual(historicalSessionRecords(days).map(r=>r.date),['2026-09-30','2025-12-31','2026-09-27']);
+  assert.equal(isActivity(make([2026,9,1],'steady')),true);
+});
+
+test('historical sessions are saved automatically on import and manual undo survives reload and changed Excel', async () => {
+  const db={records:{}};const a=appHarness(db);await tick();
+  await a.run(`loadFile(new File([new Uint8Array([1])], 'Running 2026.xlsx'))`);
+  assert.equal(db.records['2026-09-29'].done,true);
+  assert.equal(db.records['2026-09-30'],undefined); // Green rest is not an activity.
+  await a.run(`saveDayRecord(state.weeks[0].days[0], {done:false,note:'No la hice'})`);
+  const b=appHarness(db);await tick();
+  assert.equal(b.run('sessionRecord(state.weeks[0].days[0]).done'),false);
+  await b.run(`loadFile(new File([new Uint8Array([2])], 'otro nombre 2026.xlsx'))`);
+  assert.equal(db.records['2026-09-29'].done,false);
+  assert.equal(db.records['2026-09-29'].note,'No la hice');
+  const day={id:'future',date:new Date(2026,9,1),title:'8K',description:'',kilometers:8,trainingColor:'steady',status:{kind:'steady',label:'Amarillo'}};
+  b.context.futureDay=day;
+  assert.match(b.run('doneButton(futureDay)'),/Marcar como hecha/);
+});
+
+test('real XLSX numeric entities render accented titles, descriptions and sheet names without double decoding', () => {
+  const xml = {
+    'xl/workbook.xml':'<workbook xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Septiembre &#xE1;" r:id="rId1"/></sheets></workbook>',
+    'xl/_rels/workbook.xml.rels':'<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>',
+    'xl/sharedStrings.xml':'<sst><si><t>t&#233;cnica &amp; movilidad</t></si><si><t>&amp;#233; literal</t></si></sst>',
+    'xl/worksheets/sheet1.xml':'<worksheet><sheetData><row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="inlineStr"><is><t>c&#xF3;modo &lt;script&gt;</t></is></c><c r="C1" t="s"><v>1</v></c></row></sheetData></worksheet>'
+  };
+  const workbook=readXlsx(zipSync(Object.fromEntries(Object.entries(xml).map(([path,text])=>[path,strToU8(text)]))));
+  assert.equal(workbook.worksheets[0].name,'Septiembre á');
+  assert.equal(workbook.worksheets[0].getRow(1).getCell(1).text,'técnica & movilidad');
+  assert.equal(workbook.worksheets[0].getRow(1).getCell(2).text,'cómodo <script>');
+  assert.equal(workbook.worksheets[0].getRow(1).getCell(3).text,'&#233; literal');
 });

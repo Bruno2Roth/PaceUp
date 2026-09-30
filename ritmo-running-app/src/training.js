@@ -6,6 +6,21 @@ export function trainingKilometers(day) {
   return ['steady', 'controlled', 'hard'].includes(day.trainingColor) ? (day.kilometers || 0) : 0;
 }
 
+export function isActivity(day) {
+  const kind = day.trainingColor || day.status?.kind;
+  return ['steady', 'controlled', 'hard', 'easy', 'gym', 'planned'].includes(kind);
+}
+
+// This is a fixed historical import, never a rolling "before today" rule.
+export const HISTORICAL_CUTOFF = '2026-09-30';
+export function historicalSessionRecords(days) {
+  return [...new Map(days.filter(day => isActivity(day) && dateKey(day.date) <= HISTORICAL_CUTOFF)
+    .map(day => [dateKey(day.date), {
+      date: dateKey(day.date), done: true, historicalCutoff: HISTORICAL_CUTOFF,
+      planSignature: planSignature(day), planTitle: day.title, planDescription: day.description
+    }])).values()];
+}
+
 export function weeklyLoad(days) {
   const unique = [...new Map(days.map(day => [dateKey(day.date), day])).values()];
   const buckets = new Map();

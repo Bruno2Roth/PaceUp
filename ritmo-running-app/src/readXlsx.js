@@ -8,6 +8,7 @@ const xmlParser = new XMLParser({
   textNodeName: "#text",
   parseTagValue: false,
   parseAttributeValue: false,
+  htmlEntities: true,
   trimValues: false
 });
 

@@ -1,5 +1,5 @@
-import { dateKey, weeklyLoad, trainingKilometers, planSignature, planChanged } from "./training.js";
-import { readSessionRecords, updateSessionRecord, saveWorkbook, readWorkbook, deleteWorkbook } from "./storage.js";
+import { dateKey, weeklyLoad, trainingKilometers, planSignature, planChanged, isActivity, historicalSessionRecords } from "./training.js";
+import { readSessionRecords, seedHistoricalSessions, updateSessionRecord, saveWorkbook, readWorkbook, deleteWorkbook } from "./storage.js";
 import { parseRunningWorkbook } from "./parser.js";
 import { readXlsx } from "./readXlsx.js";
 import "./style.css";
@@ -113,7 +113,7 @@ function doneBadge(day) {
 }
 
 function doneButton(day) {
-  if (!["steady", "controlled", "hard"].includes(day.trainingColor) && !sessionRecord(day).done) return '';
+  if (!isActivity(day) && !sessionRecord(day).done) return '';
   const done = Boolean(sessionRecord(day).done);
   return '<button class="completion-button' + (done ? ' is-done' : '') + '" type="button" data-toggle-done="' + escapeHTML(day.id) + '" aria-pressed="' + done + '"' + (!state.recordsReady || state.savingSession || state.loading ? ' disabled' : '') + '>' + (done ? '✓ Hecha · desmarcar' : 'Marcar como hecha') + '</button>';
 }
@@ -276,7 +276,7 @@ function modalMarkup(day) {
   const note = Object.hasOwn(state.noteDrafts, key) ? state.noteDrafts[key] : record.note || '';
   const distance = day.distance;
   return '<div class="modal-backdrop" data-close-modal><section class="detail-modal" role="dialog" aria-modal="true" aria-labelledby="detail-title"><button class="modal-close" type="button" aria-label="Cerrar" data-close-modal>×</button>' +
-    '<span class="day-status ' + toneClass(day) + '">' + escapeHTML(day.status.label) + '</span>' + doneBadge(day) +
+    '<div class="modal-badges"><span class="day-status ' + toneClass(day) + '">' + escapeHTML(day.status.label) + '</span>' + doneBadge(day) + '</div>' +
     '<p class="modal-date">' + formatDate(day.date, { weekday:'long',day:'numeric',month:'long',year:'numeric' }) + '</p><h2 id="detail-title">' + cleanText(day.title) + '</h2>' +
     (['steady','controlled','hard'].includes(day.trainingColor) && day.kilometers !== null ? '<div class="modal-distance">' + formatKm(day.kilometers) + ' en el plan</div>' : '') +
     (day.description ? '<div class="modal-description">' + cleanText(day.description) + '</div>' : '<p class="modal-description muted">La planilla no tiene una descripción para este día.</p>') +
@@ -537,6 +537,11 @@ async function loadFile(file, { restore = false } = {}) {
       }
       throw new Error("Encontré pestañas de meses (" + monthSheets.join(", ") + "), pero no pude leer fechas de entrenamiento. Cada semana debe tener una etiqueta S1, S2, etc., y sus fechas en las columnas de lunes a domingo.");
     }
+    let markedHistorical = 0;
+    let historicalFailed = false;
+    try {
+      markedHistorical = await seedHistoricalSessions(historicalSessionRecords(uniqueDays(parsed.weeks)));
+    } catch { historicalFailed = true; }
     try {
       const records = await readSessionRecords();
       state.records = Object.fromEntries(records.map(record => [record.date, record]));
@@ -559,16 +564,17 @@ async function loadFile(file, { restore = false } = {}) {
     state.activeMonth = preferredMonth.name + "-" + preferredMonth.year;
     state.search = "";
     if (restore) {
-      if (state.recordsReady) state.storageMessage = 'Tu Excel y tus registros se recuperaron en este navegador.';
+      if (state.recordsReady) state.storageMessage = '';
     } else {
       try {
         await saveWorkbook(file.name, buffer);
-        const retained = uniqueDays(parsed.weeks).filter(day => state.records[dateKey(day.date)] && (state.records[dateKey(day.date)].done || state.records[dateKey(day.date)].note)).length;
-        state.storageMessage = 'Excel guardado. Se abrirá automáticamente la próxima vez.' + (retained ? ' Se conservaron ' + retained + ' registros de sesiones por fecha.' : ' Las sesiones hechas y las notas se conservarán al actualizarlo.');
+        state.storageMessage = 'Excel guardado en este navegador. Tus marcas y notas se conservan.';
       } catch {
         state.storageMessage = 'El plan está abierto, pero no se pudo guardar en este navegador. Tendrás que cargarlo de nuevo al volver.';
       }
     }
+    if (historicalFailed) state.storageMessage += ' No se pudieron guardar las marcas históricas; volvé a abrir el Excel para reintentarlo.';
+    else if (markedHistorical) state.storageMessage += ' ' + markedHistorical + ' actividades hasta el 30/09/2026 quedaron hechas.';
   } catch (error) {
     state.error = error?.message || "No se pudo leer el archivo. Probá con otra copia de Excel.";
   } finally {
