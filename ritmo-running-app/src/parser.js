@@ -1,3 +1,6 @@
+import { sessionDistance } from "./distance.js";
+export { estimateKilometers } from "./distance.js";
+
 const MONTHS = [
   "enero", "febrero", "marzo", "abril", "mayo", "junio",
   "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"
@@ -111,22 +114,6 @@ function extractDay(cell, year, monthIndex) {
   return { date, title };
 }
 
-export function estimateKilometers(text) {
-  if (!text) return null;
-  const expression = /(?:\b(\d+(?:[.,]\d+)?)\s*[x×]\s*)?(\d+(?:[.,]\d+)?)\s*(km\b|k\b|m\b)/gi;
-  let total = 0;
-  let found = false;
-  let match;
-  while ((match = expression.exec(text)) !== null) {
-    const multiplier = match[1] ? Number(match[1].replace(",", ".")) : 1;
-    const distance = Number(match[2].replace(",", "."));
-    const unit = match[3].toLowerCase();
-    total += multiplier * (unit === "m" ? distance / 1000 : distance);
-    found = true;
-  }
-  return found ? Math.round(total * 10) / 10 : null;
-}
-
 export function colorCategory(fillColor) {
   const hex = String(fillColor || "").slice(-6);
   if (!/^[0-9A-F]{6}$/i.test(hex)) return null;
@@ -235,7 +222,8 @@ export function parseRunningWorkbook(workbook, fileName = "") {
         const description = cellText(detailCell);
         const rawColor = getFillColor(mainCell);
         const status = classify(parsed.title, description, rawColor);
-        const kilometers = estimateKilometers(parsed.title || description);
+        const distance = sessionDistance(parsed.title, description);
+        const kilometers = distance.kilometers;
         week.days.push({
           id: week.id + "-" + col,
           date: parsed.date,
@@ -243,6 +231,7 @@ export function parseRunningWorkbook(workbook, fileName = "") {
           title: parsed.title || (description ? "Detalle del entrenamiento" : "Sin sesión cargada"),
           description,
           kilometers,
+          distance,
           status,
           rawColor,
           trainingColor: colorCategory(rawColor)

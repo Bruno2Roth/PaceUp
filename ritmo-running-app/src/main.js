@@ -1,9 +1,14 @@
-import { saveWorkbook, readWorkbook, deleteWorkbook } from "./storage.js";
+import { dateKey, weeklyLoad, trainingKilometers, planSignature, planChanged } from "./training.js";
+import { readSessionRecords, updateSessionRecord, saveWorkbook, readWorkbook, deleteWorkbook } from "./storage.js";
 import { parseRunningWorkbook } from "./parser.js";
 import { readXlsx } from "./readXlsx.js";
 import "./style.css";
 
 const state = {
+  records: {},
+  noteDrafts: {},
+  recordsReady: false,
+  savingSession: false,
   storageMessage: "",
   installHelp: "",
   view: "calendar",
@@ -84,7 +89,7 @@ function selectedWeeks() {
 }
 
 function countedKm(day) {
-  return ["steady", "controlled", "hard"].includes(day.trainingColor) ? (day.kilometers || 0) : 0;
+  return trainingKilometers(day);
 }
 
 function uniqueDays(weeks) {
@@ -99,16 +104,65 @@ function monthStatistics(weeks) {
     quality: training.filter(day => ["hard", "controlled"].includes(day.trainingColor)).length };
 }
 
+function sessionRecord(day) {
+  return state.records[dateKey(day.date)] || {};
+}
+
+function doneBadge(day) {
+  return sessionRecord(day).done ? '<span class="done-badge">✓ Hecha</span>' : '';
+}
+
+function doneButton(day) {
+  if (!["steady", "controlled", "hard"].includes(day.trainingColor) && !sessionRecord(day).done) return '';
+  const done = Boolean(sessionRecord(day).done);
+  return '<button class="completion-button' + (done ? ' is-done' : '') + '" type="button" data-toggle-done="' + escapeHTML(day.id) + '" aria-pressed="' + done + '"' + (!state.recordsReady || state.savingSession || state.loading ? ' disabled' : '') + '>' + (done ? '✓ Hecha · desmarcar' : 'Marcar como hecha') + '</button>';
+}
+
+function planChangeMarkup(day) {
+  const record = sessionRecord(day);
+  if (!planChanged(day, record)) return '';
+  return '<p class="record-warning">El entrenamiento cambió en el nuevo Excel. Tu registro y tu nota se conservaron.</p>' +
+    (record.done && record.planTitle ? '<details class="record-original"><summary>Ver entrenamiento marcado como hecho</summary><p>' + cleanText(record.planTitle) + '</p>' + (record.planDescription ? '<p>' + cleanText(record.planDescription) + '</p>' : '') + '</details>' : '');
+}
+
+function nearbyMarkup(today, days) {
+  return '<section class="nearby-grid" aria-label="Ayer y mañana">' + [[-1, 'Ayer'], [1, 'Mañana']].map(([offset, label]) => {
+    const date = new Date(today.getFullYear(), today.getMonth(), today.getDate() + offset);
+    const day = days.find(item => dateKey(item.date) === dateKey(date));
+    return '<article class="nearby-card ' + (day ? toneClass(day) : '') + '"><div class="nearby-top"><span>' + label + '</span><time datetime="' + dateKey(date) + '">' + formatDate(date) + '</time></div>' +
+      (day ? '<div class="nearby-status"><span class="day-status">' + escapeHTML(day.status.label) + '</span>' + doneBadge(day) + '</div><h2>' + cleanText(day.title) + '</h2>' +
+        '<p class="nearby-distance">' + (countedKm(day) > 0 ? formatKm(countedKm(day)) + ' en el plan' : ['rest', 'lesion'].includes(day.trainingColor) ? 'Sin kilómetros de running' : 'Sin distancia contabilizada') + '</p>' +
+        (planChanged(day, sessionRecord(day)) ? '<p class="record-warning">El plan cambió; tu registro se conserva.</p>' : '') +
+        '<div class="nearby-actions"><button class="text-button" type="button" data-day-id="' + escapeHTML(day.id) + '">Ver detalle ↗</button>' + doneButton(day) + '</div>' : '<h2>Sin sesión cargada</h2><p class="stats-note">El Excel no incluye esta fecha.</p>') + '</article>';
+  }).join('') + '</section>';
+}
+
 function todayMarkup() {
   const today = new Date();
-  const day = uniqueDays(state.weeks).find(item => item.date.toDateString() === today.toDateString());
+  const days = uniqueDays(state.weeks);
+  const day = days.find(item => dateKey(item.date) === dateKey(today));
+  const next = days.filter(item => item.date > today && ["steady", "controlled", "hard"].includes(item.trainingColor)).sort((a,b) => a.date - b.date)[0];
   const date = formatDate(today, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
   return '<section class="today-focus ' + (day ? toneClass(day) : '') + '" aria-labelledby="today-title"><div class="today-focus-heading"><p class="eyebrow">TU ENTRENAMIENTO DE HOY</p><span>' + escapeHTML(date) + '</span></div>' +
-    (day ? '<span class="day-status">' + escapeHTML(day.status.label) + '</span><h1 id="today-title">' + cleanText(day.title) + '</h1>' +
+    (day ? '<div class="nearby-status"><span class="day-status">' + escapeHTML(day.status.label) + '</span>' + doneBadge(day) + '</div><h1 id="today-title">' + cleanText(day.title) + '</h1>' +
       (day.description ? '<p class="today-details">' + cleanText(day.description) + '</p>' : '') +
-      '<div class="today-focus-bottom"><strong>' + (["lesion", "rest"].includes(day.trainingColor) ? 'Sin kilómetros de running' : day.kilometers !== null && countedKm(day) > 0 ? formatKm(day.kilometers) + ' en el plan' : 'Sin distancia contabilizada') +
-      '</strong><button class="primary-button" type="button" data-day-id="' + escapeHTML(day.id) + '">Ver detalle completo ↗</button></div>' :
-      '<h1 id="today-title">Hoy no tiene una sesión cargada</h1><p class="today-details">El Excel no incluye un entrenamiento para esta fecha. Podés explorar los meses disponibles debajo.</p>') + '</section>';
+      planChangeMarkup(day) +
+      '<div class="today-focus-bottom"><strong>' + (["lesion", "rest"].includes(day.trainingColor) ? 'Sin kilómetros de running' : countedKm(day) > 0 ? formatKm(day.kilometers) + ' en el plan' : 'Sin distancia contabilizada') +
+      '</strong><div class="nearby-actions">' + doneButton(day) + '<button class="primary-button" type="button" data-day-id="' + escapeHTML(day.id) + '">Ver detalle y nota ↗</button></div></div>' :
+      '<h1 id="today-title">Hoy no tiene una sesión cargada</h1><p class="today-details">El Excel no incluye un entrenamiento para esta fecha. Podés explorar los meses disponibles debajo.</p>') + '</section>' + nearbyMarkup(today, days) +
+      (next ? '<button class="next-session" type="button" data-day-id="' + escapeHTML(next.id) + '"><span>PRÓXIMA SESIÓN DE RUNNING</span><strong>' + formatDate(next.date) + ' · ' + escapeHTML(next.title) + '</strong><span aria-hidden="true">↗</span></button>' : '');
+}
+
+function weeklyLoadMarkup(days, scope = "") {
+  const weeks = weeklyLoad(days);
+  if (!weeks.length) return '';
+  const max = Math.max(1, ...weeks.map(week => week.kilometers));
+  return '<section class="calendar-panel load-panel"><div class="load-heading"><div><p class="eyebrow">DE LUNES A DOMINGO</p><h2>Carga semanal del plan</h2></div><span class="load-caption">' + escapeHTML(scope) + ' · Kilómetros planificados</span></div>' +
+    '<p class="stats-note">Amarillo, naranja y rojo suman distancia. Lesión y descanso quedan fuera. Cada color representa el día completo. La carga refleja el Excel, aunque marques sesiones como hechas.</p><div class="load-legend"><span><i class="load-steady"></i>Amarillo</span><span><i class="load-controlled"></i>Naranja</span><span><i class="load-hard"></i>Rojo</span></div>' +
+    '<div class="load-scroll" tabindex="0" aria-label="Gráfico de kilómetros por semana; desplazable horizontalmente"><div class="load-chart">' + weeks.map(week => {
+      const label = formatDate(week.start, { day: 'numeric', month: 'short' }) + '–' + formatDate(week.end, { day: 'numeric', month: 'short' });
+      return '<div class="load-column"><strong>' + formatKm(week.kilometers) + '</strong><div class="load-column-track" aria-hidden="true">' + ['steady','controlled','hard'].map(kind => '<span class="load-' + kind + '" style="height:' + (week.colors[kind]/max*100) + '%"></span>').join('') + '</div><span class="load-week-label">' + escapeHTML(label) + '</span><small>' + (week.partial ? 'Parcial · '+week.days.length+'/7 días' : week.change !== null ? (week.change > 0 ? '+' : '') + Math.round(week.change) + '% vs. anterior' : 'Semana completa') + '</small><span class="sr-only">' + escapeHTML(label) + ': ' + formatKm(week.kilometers) + '; amarillo ' + week.counts.steady + ', naranja ' + week.counts.controlled + ', rojo ' + week.counts.hard + ' días.</span></div>';
+    }).join('') + '</div></div><details class="load-table-details"><summary>Ver kilómetros y días por semana</summary><div class="stats-table-wrap"><table class="stats-table"><thead><tr><th>Semana</th><th>Km</th><th>🟡 Días</th><th>🟠 Días</th><th>🔴 Días</th><th>Datos</th></tr></thead><tbody>' + weeks.map(w => '<tr><th scope="row">' + formatDate(w.start, {day:'numeric',month:'short',year:'numeric'}) + '</th><td>' + formatKm(w.kilometers) + '</td><td>' + w.counts.steady + '</td><td>' + w.counts.controlled + '</td><td>' + w.counts.hard + '</td><td>' + w.days.length + '/7 días</td></tr>').join('') + '</tbody></table></div></details><p class="stats-note">Las semanas parciales se identifican y no se comparan en porcentaje. Las fechas duplicadas se cuentan una sola vez.</p></section>';
 }
 
 function viewNavigation() {
@@ -148,7 +202,7 @@ function statsPage() {
       const group = days.filter(d=>d.trainingColor===kind);
       return '<tr><th scope="row">'+label+'</th><td>'+group.length+'</td><td>'+formatKm(group.reduce((sum,d)=>sum+countedKm(d),0))+'</td></tr>';
     }).join('') + '<tr><th scope="row">Sin color reconocido</th><td>'+unknown+'</td><td>Excluidos</td></tr></tbody></table></div><p class="stats-note">Promedio por sesión con distancia: '+formatKm(stats.kilometers / (days.filter(d => countedKm(d)>0).length || 1))+'. Sesiones sin distancia: '+days.filter(d=>["steady","controlled","hard"].includes(d.trainingColor) && d.kilometers===null).length+'. Se muestra únicamente el período disponible en el Excel.</p></section>' +
-    (state.error ? '<p class="error-message" role="alert">'+escapeHTML(state.error)+'</p>' : '') + '</main>';
+    weeklyLoadMarkup(days, state.view === "year" ? String(state.statsYear) : "Todo el archivo") + (state.error ? '<p class="error-message" role="alert">'+escapeHTML(state.error)+'</p>' : '') + '</main>';
 }
 
 function weekRange(week) {
@@ -173,9 +227,9 @@ function dayCard(day) {
   return '<button class="day-card ' + toneClass(day) + '" type="button" data-day-id="' + escapeHTML(day.id) + '">' +
     '<div class="day-card-top"><span class="day-date">' + formatDate(day.date) + "</span>" +
     (isToday ? '<span class="today-label">Hoy</span>' : "") + "</div>" +
-    '<span class="day-status">' + escapeHTML(day.status.label) + "</span>" +
+    '<span class="day-status">' + escapeHTML(day.status.label) + "</span>" + doneBadge(day) +
     '<strong class="day-title">' + cleanText(day.title) + "</strong>" +
-    detail + '<span class="day-card-bottom">' + km + '<span class="open-hint">Ver detalle <span aria-hidden="true">↗</span></span></span>' +
+    detail + (planChanged(day, sessionRecord(day)) ? '<span class="day-change">Plan actualizado · registro conservado</span>' : '') + (day.distance?.warning ? '<span class="day-change">Revisar distancia</span>' : '') + '<span class="day-card-bottom">' + km + '<span class="open-hint">Ver detalle <span aria-hidden="true">↗</span></span></span>' +
     "</button>";
 }
 
@@ -216,28 +270,54 @@ function emptyState() {
 }
 
 function modalMarkup(day) {
-  if (!day) return "";
-  return '<div class="modal-backdrop" data-close-modal>' +
-    '<section class="detail-modal" role="dialog" aria-modal="true" aria-labelledby="detail-title">' +
-    '<button class="modal-close" type="button" aria-label="Cerrar" data-close-modal>×</button>' +
-    '<span class="day-status ' + toneClass(day) + '">' + escapeHTML(day.status.label) + "</span>" +
-    '<p class="modal-date">' + formatDate(day.date, { weekday: "long", day: "numeric", month: "long", year: "numeric" }) + "</p>" +
-    '<h2 id="detail-title">' + cleanText(day.title) + "</h2>" +
-    (["steady", "controlled", "hard"].includes(day.trainingColor) && day.kilometers !== null ? '<div class="modal-distance">' + formatKm(day.kilometers) + "</div>" : "") +
-    (day.description ? '<div class="modal-description">' + cleanText(day.description) + "</div>" :
-      '<p class="modal-description muted">La planilla no tiene una descripción para este día.</p>') +
-    '<p class="modal-footnote">El kilometraje se estima a partir de las distancias explícitas del entrenamiento.</p>' +
-    "</section></div>";
+  if (!day) return '';
+  const key = dateKey(day.date);
+  const record = sessionRecord(day);
+  const note = Object.hasOwn(state.noteDrafts, key) ? state.noteDrafts[key] : record.note || '';
+  const distance = day.distance;
+  return '<div class="modal-backdrop" data-close-modal><section class="detail-modal" role="dialog" aria-modal="true" aria-labelledby="detail-title"><button class="modal-close" type="button" aria-label="Cerrar" data-close-modal>×</button>' +
+    '<span class="day-status ' + toneClass(day) + '">' + escapeHTML(day.status.label) + '</span>' + doneBadge(day) +
+    '<p class="modal-date">' + formatDate(day.date, { weekday:'long',day:'numeric',month:'long',year:'numeric' }) + '</p><h2 id="detail-title">' + cleanText(day.title) + '</h2>' +
+    (['steady','controlled','hard'].includes(day.trainingColor) && day.kilometers !== null ? '<div class="modal-distance">' + formatKm(day.kilometers) + ' en el plan</div>' : '') +
+    (day.description ? '<div class="modal-description">' + cleanText(day.description) + '</div>' : '<p class="modal-description muted">La planilla no tiene una descripción para este día.</p>') +
+    (distance?.warning ? '<p class="record-warning">' + escapeHTML(distance.warning) + '</p>' : distance?.parts?.length ? '<details class="distance-breakdown"><summary>Cómo se calculó la distancia</summary><p>' + escapeHTML(distance.source) + '</p><ul>' + distance.parts.map(part => '<li>' + escapeHTML(part.label) + ' = ' + formatKm(part.kilometers) + '</li>').join('') + '</ul><p>El título y la descripción no se suman dos veces.</p></details>' : '') +
+    planChangeMarkup(day) + '<div class="session-controls">' + doneButton(day) + '</div><label class="session-note-label" for="session-note">Tu nota del entrenamiento</label><textarea id="session-note" rows="3" maxlength="3000" placeholder="Sensaciones, cambios o cómo salió…"' + (!state.recordsReady || state.savingSession ? ' disabled' : '') + '>' + escapeHTML(note) + '</textarea><button class="outline-button" type="button" data-save-note="' + escapeHTML(day.id) + '"' + (!state.recordsReady || state.savingSession ? ' disabled' : '') + '>Guardar nota</button><p class="modal-footnote">Las marcas de hecha y las notas se guardan en este navegador por fecha y se conservan al actualizar el Excel.</p></section></div>';
+}
+
+async function saveDayRecord(day, patch) {
+  if (!state.recordsReady || state.savingSession || state.loading) return;
+  state.savingSession = true;
+  render();
+  try {
+    const record = await updateSessionRecord(dateKey(day.date), patch);
+    state.records[record.date] = record;
+    state.storageMessage = 'Registro guardado. Se conserva al actualizar el Excel.';
+  } catch {
+    state.storageMessage = 'No se pudo guardar el registro. La marca y la nota guardadas antes se conservaron; volvé a intentarlo.';
+  } finally { state.savingSession = false; render(); }
 }
 
 function bindEvents() {
+  document.querySelectorAll('[data-toggle-done]').forEach(button => button.addEventListener('click', () => {
+    const day = uniqueDays(state.weeks).find(day => day.id === button.dataset.toggleDone);
+    if (!day) return;
+    const done = !sessionRecord(day).done;
+    saveDayRecord(day, { done, ...(done ? { planSignature: planSignature(day), planTitle: day.title, planDescription: day.description } : {}) });
+  }));
+  document.querySelector('#session-note')?.addEventListener('input', event => {
+    if (state.selectedDay) state.noteDrafts[dateKey(state.selectedDay.date)] = event.target.value;
+  });
+  document.querySelector('[data-save-note]')?.addEventListener('click', event => {
+    const day = uniqueDays(state.weeks).find(day => day.id === event.currentTarget.dataset.saveNote);
+    if (day) saveDayRecord(day, { note: document.querySelector('#session-note').value });
+  });
   document.querySelector('[data-forget-file]')?.addEventListener('click', async () => {
-    if (state.loading) return;
+    if (state.loading || state.savingSession) return;
     state.loading = true;
     render();
     try {
       await deleteWorkbook();
-      Object.assign(state, { fileName: '', weeks: [], months: [], activeMonth: '', search: '', selectedDay: null, view: 'calendar', error: '', storageMessage: 'Excel eliminado de este navegador.' });
+      Object.assign(state, { fileName: '', weeks: [], months: [], activeMonth: '', search: '', selectedDay: null, view: 'calendar', error: '', storageMessage: 'Excel eliminado. Tus sesiones hechas y tus notas se conservan por fecha.' });
     } catch {
       state.storageMessage = 'No se pudo borrar el Excel guardado. Volvé a intentarlo.';
     } finally { state.loading = false; render(); }
@@ -269,7 +349,7 @@ function bindEvents() {
     render();
   });
   document.querySelectorAll("[data-open-file]").forEach(button =>
-    button.addEventListener("click", () => { if (!state.loading) document.querySelector("#excel-file").click(); })
+    button.addEventListener("click", () => { if (!state.loading && !state.savingSession) document.querySelector("#excel-file").click(); })
   );
   document.querySelector("#excel-file").addEventListener("change", event => {
     const file = event.target.files && event.target.files[0];
@@ -393,6 +473,7 @@ function render() {
     body = '<main id="drop-target" class="main-shell">' + viewNavigation() +
       todayMarkup() + '<div class="loaded-file-line"><span>' + escapeHTML(state.fileName) + '</span><button class="text-button" type="button" data-open-file>Cambiar Excel</button></div>' +
       '<section class="metrics-grid" aria-label="Resumen del plan">' + metricsMarkup(weeks) + "</section>" +
+      weeklyLoadMarkup(uniqueDays(state.weeks).filter(day => currentMonth && day.date.getMonth() === currentMonth.index && day.date.getFullYear() === currentMonth.year), currentMonth ? monthTitle(currentMonth) : "") +
       '<section class="calendar-panel"><div class="calendar-toolbar"><div class="calendar-heading"><p class="eyebrow">CALENDARIO DEL PLAN</p>' +
       '<h2>Entrenamientos</h2></div><div class="month-navigation">' +
       '<button class="month-arrow" type="button" data-month-step="-1" aria-label="Mes anterior"' + (activeMonthIndex <= 0 ? " disabled" : "") + '>‹</button>' +
@@ -425,7 +506,7 @@ function render() {
 }
 
 async function loadFile(file, { restore = false } = {}) {
-  if (state.loading && !restore) return;
+  if ((state.loading || state.savingSession) && !restore) return;
   const extension = file.name.split(".").pop().toLowerCase();
   if (!["xlsx", "xlsm"].includes(extension)) {
     state.error = "Elegí un archivo .xlsx o .xlsm. Los archivos .xls antiguos todavía no son compatibles.";
@@ -456,6 +537,13 @@ async function loadFile(file, { restore = false } = {}) {
       }
       throw new Error("Encontré pestañas de meses (" + monthSheets.join(", ") + "), pero no pude leer fechas de entrenamiento. Cada semana debe tener una etiqueta S1, S2, etc., y sus fechas en las columnas de lunes a domingo.");
     }
+    try {
+      const records = await readSessionRecords();
+      state.records = Object.fromEntries(records.map(record => [record.date, record]));
+      state.recordsReady = true;
+    } catch {
+      state.recordsReady = false;
+    }
     state.view = "calendar";
     state.selectedDay = null;
     state.fileName = file.name;
@@ -471,11 +559,12 @@ async function loadFile(file, { restore = false } = {}) {
     state.activeMonth = preferredMonth.name + "-" + preferredMonth.year;
     state.search = "";
     if (restore) {
-      state.storageMessage = 'Tu Excel guardado se recuperó en este navegador.';
+      if (state.recordsReady) state.storageMessage = 'Tu Excel y tus registros se recuperaron en este navegador.';
     } else {
       try {
         await saveWorkbook(file.name, buffer);
-        state.storageMessage = 'Excel guardado en este navegador. Se abrirá automáticamente la próxima vez.';
+        const retained = uniqueDays(parsed.weeks).filter(day => state.records[dateKey(day.date)] && (state.records[dateKey(day.date)].done || state.records[dateKey(day.date)].note)).length;
+        state.storageMessage = 'Excel guardado. Se abrirá automáticamente la próxima vez.' + (retained ? ' Se conservaron ' + retained + ' registros de sesiones por fecha.' : ' Las sesiones hechas y las notas se conservarán al actualizarlo.');
       } catch {
         state.storageMessage = 'El plan está abierto, pero no se pudo guardar en este navegador. Tendrás que cargarlo de nuevo al volver.';
       }
@@ -483,6 +572,7 @@ async function loadFile(file, { restore = false } = {}) {
   } catch (error) {
     state.error = error?.message || "No se pudo leer el archivo. Probá con otra copia de Excel.";
   } finally {
+    if (!state.recordsReady) state.storageMessage += ' No se pudieron leer tus registros: marcar sesiones y guardar notas queda desactivado para protegerlos.';
     state.loading = false;
     render();
     scrollToMonth(state.activeMonth);
@@ -493,6 +583,14 @@ async function restoreSavedWorkbook() {
   state.loading = true;
   render();
   try {
+    try {
+      const records = await readSessionRecords();
+      state.records = Object.fromEntries(records.map(record => [record.date, record]));
+      state.recordsReady = true;
+    } catch {
+      state.recordsReady = false;
+      state.storageMessage = 'No se pudieron recuperar tus registros. Podés ver el plan; marcar sesiones y guardar notas queda desactivado para proteger lo guardado.';
+    }
     const saved = await readWorkbook();
     if (saved) {
       if (typeof saved.name !== 'string' || !(saved.buffer instanceof ArrayBuffer)) throw new Error('Archivo guardado inválido');
