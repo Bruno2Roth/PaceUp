@@ -204,6 +204,10 @@ function metricsMarkup(weeks) {
     '<span class="metric-caption">' + escapeHTML(item.caption) + "</span></article>").join("");
 }
 
+function loadingMarkup() {
+  return '<main class="boot" aria-label="Cargando PaceUp"><div class="boot-mark" aria-hidden="true"><i></i><i></i><i></i></div><h1>PaceUp</h1><p>Tu próximo paso empieza acá.</p><div class="boot-progress" aria-hidden="true"><span></span></div><small role="status">Preparando tu plan…</small><span class="boot-footer">Tu ritmo. Tu camino.</span></main>';
+}
+
 function emptyState() {
   return '<section class="welcome-layout"><div class="welcome-copy"><p class="eyebrow">TU RUNNING, CON PERSPECTIVA</p><h1>Cada día cuenta.<br><span>Tu plan también.</span></h1><p class="welcome-description">Convertí tu Excel en un espacio claro para entrenar: hoy, tus próximas semanas y todo lo que tenés por delante.</p>' +
     '<div class="welcome-features"><span><i>01</i>El entrenamiento de hoy, protagonista</span><span><i>02</i>Todos tus meses, a un toque</span><span><i>03</i>Tu carga y estadísticas en perspectiva</span></div></div>' +
@@ -383,7 +387,7 @@ function render() {
   let body;
   if (!state.weeks.length) {
     body = '<main id="drop-target" class="main-shell empty-shell">' +
-      (state.loading ? '<div class="loading-state"><span class="loader"></span><strong>Leyendo tu planilla...</strong><span>Un momento</span></div>' : emptyState()) +
+      (state.loading ? loadingMarkup() : emptyState()) +
       (state.error ? '<p class="error-message" role="alert">' + escapeHTML(state.error) + "</p>" : "") + "</main>";
   } else {
     body = '<main id="drop-target" class="main-shell">' + viewNavigation() +
