@@ -723,3 +723,60 @@ button:disabled { cursor: not-allowed; }
   .topbar-right { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); width: 100%; }
   .topbar-right .outline-button { min-width: 0; }
 }
+
+/* Each area has its own view; the header stays compact on phones. */
+.topbar { min-height: 72px; flex-wrap: nowrap; position: sticky; }
+.topbar .topbar-right { display: flex; flex: 0 1 auto; width: auto; flex-wrap: nowrap; gap: 10px; }
+.topbar .topbar-right > .outline-button { width: auto; flex: 0 0 auto; }
+.app-menu { position: relative; }
+.menu-trigger { display: flex; align-items: center; justify-content: center; gap: 9px; min-height: 44px; list-style: none; cursor: pointer; user-select: none; }
+.menu-trigger::-webkit-details-marker { display: none; }
+.menu-trigger:focus-visible, a:focus-visible { outline: 3px solid #99cf4b; outline-offset: 3px; }
+.menu-icon { display: grid; width: 15px; gap: 3px; }
+.menu-icon i { display: block; height: 2px; width: 100%; background: currentColor; border-radius: 2px; }
+.app-menu[open] .menu-trigger { background: var(--forest); color: #fff; border-color: var(--forest); }
+.menu-panel { position: absolute; top: calc(100% + 12px); right: 0; width: 318px; max-width: calc(100vw - 30px); max-height: calc(100dvh - 100px); overflow-y: auto; overscroll-behavior: contain; padding: 12px; border: 1px solid #dce7d5; border-radius: 18px; background: #fff; box-shadow: 0 20px 60px #17352b26; }
+.menu-heading { margin: 7px 10px 12px; color: #82907f; font-size: 9px; font-weight: 800; letter-spacing: .14em; }
+.menu-panel a { display: flex; justify-content: space-between; align-items: center; gap: 14px; min-height: 62px; padding: 12px; border-radius: 10px; color: var(--forest); text-decoration: none; }
+.menu-panel a > span:first-child { display: grid; gap: 5px; min-width: 0; }
+.menu-panel a strong { font-size: 13px; line-height: 1.4; }
+.menu-panel a small { color: #7b897e; font-size: 11px; line-height: 1.4; }
+.menu-panel a > span:last-child { color: #8d9b87; }
+.menu-panel a:hover { background: #f2f6ee; }
+.menu-panel a[aria-current="page"] { background: #e9f3dc; }
+.menu-panel a[aria-current="page"] small { color: #577044; }
+.home-shell { padding-top: 28px; }
+.home-calendar-link { display: inline-block; padding: 12px 0; color: #c7f278; font-size: 13px; }
+.view-heading { margin-bottom: 26px; max-width: 740px; }
+.view-heading h1 { color: var(--forest); font-size: clamp(30px, 4vw, 45px); line-height: 1.15; margin-bottom: 12px; }
+.view-heading > p:last-child { margin: 0; color: #738078; font-size: 14px; line-height: 1.7; }
+.load-year-picker { display: flex; align-items: center; gap: 14px; margin: 0 0 22px; color: #647565; font-size: 13px; }
+.load-year-picker select { padding: 11px 16px; min-height: 44px; border: 1px solid #cdd8cd; border-radius: 10px; background: #fff; color: var(--forest); }
+.settings-shell { max-width: 1000px; }
+.settings-card { margin-bottom: 22px; }
+.settings-card h2, .settings-weather > h2 { font-size: 22px; line-height: 1.35; color: var(--forest); letter-spacing: -.03em; }
+.settings-card .sync-strip { width: 100%; margin: 16px 0; flex-wrap: wrap; }
+.settings-copy { color: #65736a; font-size: 13px; line-height: 1.75; overflow-wrap: anywhere; }
+.settings-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 18px; }
+.settings-hint { margin: 18px 0 0; color: #839080; font-size: 11px; line-height: 1.7; }
+.settings-weather { margin-top: 32px; }
+.settings-weather .weather-panel { max-width: 650px; }
+.installed-message { color: #42682d; font-size: 13px; }
+.app-feedback { width: min(1360px, calc(100% - 56px)); margin: 18px auto 0; padding: 12px 16px; border-radius: 12px; background: #fff5df; color: #785d25; font-size: 12px; line-height: 1.65; }
+.app-feedback p { margin: 0; }
+.app-feedback p + p { margin-top: 8px; }
+@media(max-width:720px) {
+  .home-shell { padding-top: 18px; }
+  .view-heading { margin-bottom: 22px; }
+  .load-year-picker select { font-size: 16px; }
+  .settings-actions > button { flex: 1 1 140px; }
+  .app-feedback { width: calc(100% - 30px); }
+}
+@media(max-width:540px) {
+  .topbar { min-height: 68px; gap: 10px; }
+  .brand { font-size: 18px; gap: 8px; }
+  .brand-symbol { width: 28px; height: 28px; }
+  .topbar .topbar-right { gap: 7px; }
+  .topbar .topbar-right > .outline-button, .menu-trigger { padding: 10px 11px; font-size: 12px; }
+  .menu-panel { top: calc(100% + 14px); }
+}

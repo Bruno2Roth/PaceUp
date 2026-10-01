@@ -14,6 +14,17 @@ let weatherRequest = 0;
 let lastWeatherAttempt = 0;
 let geolocationRequest = 0;
 const drive = { syncing:false, reloading:false, message:'', status:'idle' };
+const VIEWS = [
+  {key:'home',hash:'#inicio',label:'Inicio',description:'Tu entrenamiento de hoy'},
+  {key:'calendar',hash:'#calendario',label:'Calendario',description:'Ayer, mañana y todos tus meses'},
+  {key:'load',hash:'#carga',label:'Carga semanal',description:'Kilómetros y evolución del plan'},
+  {key:'year',hash:'#estadisticas-anuales',label:'Estadísticas del año',description:'Tu año en perspectiva'},
+  {key:'all',hash:'#estadisticas-generales',label:'Estadísticas generales',description:'Todo el historial del archivo'},
+  {key:'settings',hash:'#ajustes',label:'Ajustes y Drive',description:'Excel, clima e instalación'}
+];
+function viewFromHash() {
+  return VIEWS.find(view=>view.hash === window.location?.hash)?.key || 'home';
+}
 
 const state = {
   records: {},
@@ -22,7 +33,8 @@ const state = {
   savingSession: false,
   storageMessage: "",
   installHelp: "",
-  view: "calendar",
+  view: viewFromHash(),
+  loadYear: "all",
   statsYear: "",
   fileName: "",
   planSource: "local",
@@ -38,6 +50,27 @@ const state = {
 };
 
 const app = document.querySelector("#app");
+function navigateToView(key, {history = true} = {}) {
+  const view = VIEWS.find(view=>view.key === key);
+  if (!view) return;
+  state.view = key;
+  state.selectedDay = null;
+  if (history && window.location?.hash !== view.hash) window.history?.pushState(null,'',view.hash);
+  render();
+  window.scrollTo?.({top:0,behavior:'auto'});
+  document.querySelector('main h1, main h2')?.focus({preventScroll:true});
+}
+window.addEventListener('popstate',()=>navigateToView(viewFromHash(),{history:false}));
+window.addEventListener('hashchange',()=>navigateToView(viewFromHash(),{history:false}));
+window.addEventListener('click',event=>{
+  const menu = document.querySelector('.app-menu[open]');
+  if (menu && !menu.contains(event.target)) menu.open = false;
+});
+window.addEventListener('keydown',event=>{
+  if (event.key !== 'Escape') return;
+  const menu = document.querySelector('.app-menu[open]');
+  if (menu) {menu.open = false;menu.querySelector('summary').focus();}
+});
 let dragDepth = 0;
 let installPrompt = null;
 let isInstalled = window.matchMedia('(display-mode: standalone)').matches;
@@ -152,20 +185,23 @@ function nearbyMarkup(today, days) {
   }).join('') + '</section>';
 }
 
+function nextSessionMarkup() {
+  const next = uniqueDays(state.weeks).filter(item => item.date > new Date() && ["steady", "controlled", "hard"].includes(item.trainingColor)).sort((a,b) => a.date - b.date)[0];
+  return next ? '<button class="next-session" type="button" data-day-id="' + escapeHTML(next.id) + '"><span>PRÓXIMA SESIÓN DE RUNNING</span><strong>' + formatDate(next.date) + ' · ' + escapeHTML(next.title) + '</strong><span aria-hidden="true">↗</span></button>' : '';
+}
+
 function todayMarkup() {
   const today = new Date();
   const days = uniqueDays(state.weeks);
   const day = days.find(item => dateKey(item.date) === dateKey(today));
-  const next = days.filter(item => item.date > today && ["steady", "controlled", "hard"].includes(item.trainingColor)).sort((a,b) => a.date - b.date)[0];
   const date = formatDate(today, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
   return '<div class="today-weather-grid"><section class="today-focus ' + (day ? toneClass(day) : '') + '" aria-labelledby="today-title"><div class="today-focus-heading"><p class="eyebrow">TU ENTRENAMIENTO DE HOY</p><span>' + escapeHTML(date) + '</span></div>' +
-    (day ? '<div class="nearby-status"><span class="day-status">' + escapeHTML(day.status.label) + '</span>' + doneBadge(day) + '</div><h1 id="today-title">' + cleanText(day.title) + '</h1>' +
+    (day ? '<div class="nearby-status"><span class="day-status">' + escapeHTML(day.status.label) + '</span>' + doneBadge(day) + '</div><h1 id="today-title" tabindex="-1">' + cleanText(day.title) + '</h1>' +
       (day.description ? '<p class="today-details">' + cleanText(day.description) + '</p>' : '') +
       planChangeMarkup(day) +
       '<div class="today-focus-bottom"><strong>' + (["lesion", "rest"].includes(day.trainingColor) ? 'Sin kilómetros de running' : countedKm(day) > 0 ? formatKm(day.kilometers) + ' en el plan' : 'Sin distancia contabilizada') +
       '</strong><div class="nearby-actions">' + doneButton(day) + '<button class="primary-button" type="button" data-day-id="' + escapeHTML(day.id) + '">Ver detalle y nota ↗</button></div></div>' :
-      '<h1 id="today-title">Hoy no tiene una sesión cargada</h1><p class="today-details">El Excel no incluye un entrenamiento para esta fecha. Podés explorar los meses disponibles debajo.</p>') + '</section>' + weatherPanelMarkup(weather, dateKey(today), {title:'Clima para hoy', controls:true}) + '</div>' + nearbyMarkup(today, days) +
-      (next ? '<button class="next-session" type="button" data-day-id="' + escapeHTML(next.id) + '"><span>PRÓXIMA SESIÓN DE RUNNING</span><strong>' + formatDate(next.date) + ' · ' + escapeHTML(next.title) + '</strong><span aria-hidden="true">↗</span></button>' : '');
+      '<h1 id="today-title" tabindex="-1">Hoy no tiene una sesión cargada</h1><p class="today-details">El Excel no incluye un entrenamiento para esta fecha.</p><a class="home-calendar-link" href="#calendario" data-view="calendar">Ver los días disponibles en el calendario ↗</a>') + '</section>' + weatherPanelMarkup(weather, dateKey(today), {title:'Clima para hoy', controls:false}) + '</div>';
 }
 
 function weeklyLoadMarkup(days, scope = "") {
@@ -181,9 +217,8 @@ function weeklyLoadMarkup(days, scope = "") {
 }
 
 function viewNavigation() {
-  return '<nav class="view-navigation" aria-label="Vistas de PaceUp">' +
-    [["calendar", "Calendario"], ["year", "Estadísticas del año"], ["all", "Estadísticas generales"]].map(([key, label]) =>
-      '<button type="button" data-view="' + key + '" aria-pressed="' + (state.view === key) + '" class="month-tab' + (state.view === key ? ' is-active' : '') + '">' + label + '</button>').join('') + '</nav>';
+  return '<details class="app-menu"><summary class="outline-button menu-trigger"><span class="menu-icon" aria-hidden="true"><i></i><i></i><i></i></span>Menú</summary><nav class="menu-panel" aria-label="Vistas de PaceUp"><p class="menu-heading">TU ESPACIO DE RUNNING</p>' +
+    VIEWS.map(view=>'<a href="' + view.hash + '" data-view="' + view.key + '"' + (state.view === view.key ? ' aria-current="page"' : '') + '><span><strong>' + view.label + '</strong><small>' + view.description + '</small></span><span aria-hidden="true">↗</span></a>').join('') + '</nav></details>';
 }
 
 function statsPage() {
@@ -203,8 +238,8 @@ function statsPage() {
   const unknown = days.filter(day => !day.trainingColor).length;
   const maxKm = Math.max(1, ...months.map(([,m]) => m.days.reduce((sum,d) => sum + countedKm(d),0)));
   const cards = [["Kilómetros del plan",formatKm(stats.kilometers)], ["Sesiones de running",stats.sessions], ["Días de lesión",injury], ["Días de descanso",rest]];
-  return '<main id="drop-target" class="main-shell">' + viewNavigation() +
-    '<section class="page-intro"><div><p class="eyebrow">PACEUP · ESTADÍSTICAS</p><h1>' + (state.view === "year" ? 'Tu año,<br><span>en perspectiva.</span>' : 'Todo tu plan,<br><span>en perspectiva.</span>') +
+  return '<main id="drop-target" class="main-shell" data-page="' + state.view + '">' +
+    '<section class="page-intro"><div><p class="eyebrow">PACEUP · ESTADÍSTICAS</p><h1 tabindex="-1">' + (state.view === "year" ? 'Tu año,<br><span>en perspectiva.</span>' : 'Todo tu plan,<br><span>en perspectiva.</span>') +
     '</h1><p class="intro-copy">' + escapeHTML(state.fileName) + ' · Datos del plan, incluidas fechas futuras</p></div>' +
     (state.view === "year" ? '<label class="year-picker">Año<select id="stats-year">' + years.map(y => '<option value="'+y+'"'+(Number(state.statsYear)===y?' selected':'')+'>'+y+'</option>').join('')+'</select></label>' : '<div class="stats-period">'+years.join(' · ')+'</div>') + '</section>' +
     '<section class="metrics-grid">' + cards.map(([label,value],i) => '<article class="metric-card metric-'+i+'"><span class="metric-label">'+label+'</span><strong>'+escapeHTML(value)+'</strong></article>').join('') + '</section>' +
@@ -217,7 +252,7 @@ function statsPage() {
       const group = days.filter(d=>d.trainingColor===kind);
       return '<tr><th scope="row">'+label+'</th><td>'+group.length+'</td><td>'+formatKm(group.reduce((sum,d)=>sum+countedKm(d),0))+'</td></tr>';
     }).join('') + '<tr><th scope="row">Sin color reconocido</th><td>'+unknown+'</td><td>Excluidos</td></tr></tbody></table></div><p class="stats-note">Promedio por sesión con distancia: '+formatKm(stats.kilometers / (days.filter(d => countedKm(d)>0).length || 1))+'. Sesiones sin distancia: '+days.filter(d=>["steady","controlled","hard"].includes(d.trainingColor) && d.kilometers===null).length+'. Se muestra únicamente el período disponible en el Excel.</p></section>' +
-    weeklyLoadMarkup(days, state.view === "year" ? String(state.statsYear) : "Todo el archivo") + (state.error ? '<p class="error-message" role="alert">'+escapeHTML(state.error)+'</p>' : '') + '</main>';
+    '</main>';
 }
 
 function weekRange(week) {
@@ -444,7 +479,8 @@ function bindEvents() {
     render();
     try {
       await deleteWorkbook();
-      Object.assign(state, { fileName: '', planSource:'local',driveRevision:'',driveCheckedAt:0, weeks: [], months: [], activeMonth: '', search: '', selectedDay: null, view: 'calendar', error: '', storageMessage: 'Excel eliminado. Tus sesiones hechas y tus notas se conservan por fecha.' });
+      Object.assign(state, { fileName: '', planSource:'local',driveRevision:'',driveCheckedAt:0, weeks: [], months: [], activeMonth: '', search: '', selectedDay: null, error: '', storageMessage: 'Excel eliminado. Tus sesiones hechas y tus notas se conservan por fecha.' });
+      Object.assign(drive,{message:'',status:'idle'});
     } catch {
       state.storageMessage = 'No se pudo borrar el Excel guardado. Volvé a intentarlo.';
     } finally { state.loading = false; render(); }
@@ -466,13 +502,17 @@ function bindEvents() {
     }
     render();
   });
-  document.querySelectorAll("[data-view]").forEach(button => button.addEventListener("click", () => {
-    state.view = button.dataset.view;
-    state.selectedDay = null;
-    render();
+  document.querySelectorAll("[data-view]").forEach(button => button.addEventListener("click", event => {
+    if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || event.button) return;
+    event.preventDefault();
+    navigateToView(button.dataset.view);
   }));
   document.querySelector("#stats-year")?.addEventListener("change", event => {
     state.statsYear = event.target.value;
+    render();
+  });
+  document.querySelector("#load-year")?.addEventListener("change", event => {
+    state.loadYear = event.target.value;
     render();
   });
   document.querySelectorAll("[data-open-file]").forEach(button =>
@@ -569,6 +609,39 @@ function moveMonth(step) {
   if (nextMonth) setActiveMonth(monthKey(nextMonth), true);
 }
 
+function pageHeading(title, description) {
+  return '<div class="view-heading"><p class="eyebrow">PACEUP · TU PLAN</p><h1 tabindex="-1">' + title + '</h1><p>' + description + '</p></div>';
+}
+
+function loadPage() {
+  const years = [...new Set(uniqueDays(state.weeks).map(day=>day.date.getFullYear()))].sort((a,b)=>b-a);
+  const weeks = state.weeks.filter(week=>state.loadYear === 'all' || week.year === Number(state.loadYear));
+  return '<main id="drop-target" class="main-shell" data-page="load">' + pageHeading('Carga semanal','Seguí la evolución de los kilómetros de tu plan, semana a semana.') +
+    '<label class="load-year-picker">Período<select id="load-year"><option value="all"' + (state.loadYear === 'all' ? ' selected' : '') + '>Todo el plan</option>' + years.map(year=>'<option value="' + year + '"' + (String(year) === state.loadYear ? ' selected' : '') + '>' + year + '</option>').join('') + '</select></label>' +
+    '<section class="metrics-grid" aria-label="Resumen de carga">' + metricsMarkup(weeks) + '</section>' + weeklyLoadMarkup(uniqueDays(weeks),state.loadYear === 'all' ? 'Todo el archivo' : state.loadYear) + '</main>';
+}
+
+function settingsPage() {
+  const busy = state.loading || state.savingSession || drive.syncing || drive.reloading;
+  return '<main id="drop-target" class="main-shell settings-shell" data-page="settings">' + pageHeading('Ajustes y Drive','Administrá tu plan, la ubicación del clima y la instalación de PaceUp.') +
+    '<section class="calendar-panel settings-card"><p class="eyebrow">PLAN Y COPIA LOCAL</p><h2>Tu Excel de running</h2>' + syncStripMarkup() +
+    '<p class="settings-copy">' + (state.fileName ? 'Archivo abierto: <strong>' + escapeHTML(state.fileName) + '</strong>.' : 'Todavía no hay un Excel guardado en este navegador.') + ' Recargar revisa Drive y el clima. La copia local permite volver a abrir el plan sin conexión; tus notas y marcas se conservan por fecha.</p>' +
+    '<div class="settings-actions"><button class="outline-button" type="button" data-open-file' + (busy ? ' disabled' : '') + '>' + (state.fileName ? 'Cambiar Excel' : 'Importar Excel') + '</button>' + (state.fileName ? '<button class="outline-button" type="button" data-forget-file' + (busy ? ' disabled' : '') + '>Borrar copia local</button>' : '') + '</div>' +
+    '<p class="settings-hint">Borrar la copia local conserva tus registros y el archivo original de Drive. Una importación manual se reemplaza por el plan de Drive al tocar Recargar.</p></section>' +
+    '<section class="settings-card calendar-panel"><p class="eyebrow">EN TU DISPOSITIVO</p><h2>Instalar PaceUp</h2><p class="settings-copy">Abrí tu entrenamiento desde la pantalla principal de Android.</p>' +
+    (isInstalled ? '<p class="installed-message">✓ Estás usando la app instalada.</p>' : '<button class="outline-button install-button" type="button" data-install>Instalar app</button>') +
+    (state.installHelp ? '<p class="settings-copy" role="status">' + escapeHTML(state.installHelp) + '</p>' : '') + '</section>' +
+    '<section class="settings-weather"><p class="eyebrow">PREFERENCIAS DEL PRONÓSTICO</p><h2>Ubicación y hora de entrenamiento</h2><p class="settings-copy">El lugar y la hora elegidos se guardan para mostrar el clima junto a cada día.</p>' + weatherPanelMarkup(weather,dateKey(new Date()),{title:'Tu pronóstico',controls:true}) + '</section></main>';
+}
+
+function feedbackMarkup() {
+  const messages = [];
+  if (state.error) messages.push(state.error);
+  if (state.storageMessage && (state.view === 'settings' || /No se pudo|No se pudieron|Registro guardado/.test(state.storageMessage))) messages.push(state.storageMessage);
+  if (drive.status === 'warning' && state.view !== 'settings') messages.push(drive.message);
+  return messages.length ? '<div class="app-feedback" role="status">' + messages.map(message=>'<p>' + escapeHTML(message) + '</p>').join('') + '</div>' : '';
+}
+
 function render() {
   const monthStripScroll = document.querySelector(".month-strip")?.scrollLeft;
   const weeks = selectedWeeks();
@@ -585,22 +658,22 @@ function render() {
       '" aria-pressed="' + active + '" aria-label="Ver ' + escapeHTML(monthTitle(month)) + '">' +
       '<span>' + escapeHTML(monthTitle(month)) + '</span></button>';
   }).join("");
-  const header = '<header class="topbar"><a class="brand" href="#" aria-label="PaceUp, inicio">' +
+  const header = '<header class="topbar"><a class="brand" href="#inicio" data-view="home" aria-label="PaceUp, inicio">' +
     '<span class="brand-symbol"><span></span><span></span><span></span></span><span>PaceUp</span></a>' +
-    '<div class="topbar-right">' + '<button class="outline-button reload-button" type="button" data-reload' + (state.loading || state.savingSession || drive.syncing || drive.reloading ? ' disabled' : '') + '>' + (drive.reloading || drive.syncing ? 'Recargando…' : 'Recargar') + '</button>' + (isInstalled ? '' : '<button class="outline-button install-button" type="button" data-install>Instalar app</button>') + '<span class="local-badge"><span class="status-dot"></span>Se procesa en tu navegador</span>' +
-    '<button class="outline-button" type="button" data-open-file>' +
-    (state.fileName ? "Cambiar Excel" : "Importar Excel") + "</button>" + (state.fileName ? '<button class="outline-button" type="button" data-forget-file' + (state.loading || drive.syncing || drive.reloading ? ' disabled' : '') + '>Borrar copia</button>' : '') + "</div></header>";
+    '<div class="topbar-right"><button class="outline-button reload-button" type="button" data-reload' + (state.loading || state.savingSession || drive.syncing || drive.reloading ? ' disabled' : '') + '>' + (drive.reloading || drive.syncing ? 'Recargando…' : 'Recargar') + '</button>' + viewNavigation() + '</div></header>';
 
   let body;
-  if (!state.weeks.length) {
-    body = '<main id="drop-target" class="main-shell empty-shell">' +
+  if (state.view === 'settings') {
+    body = settingsPage();
+  } else if (!state.weeks.length) {
+    body = '<main id="drop-target" class="main-shell empty-shell" data-page="' + state.view + '">' +
       ((state.loading || drive.syncing) ? loadingMarkup() : emptyState()) +
-      (state.error ? '<p class="error-message" role="alert">' + escapeHTML(state.error) + "</p>" : "") + "</main>";
-  } else {
-    body = '<main id="drop-target" class="main-shell">' + viewNavigation() +
-      todayMarkup() + '<div class="loaded-file-line"><span>' + escapeHTML(state.fileName) + '</span><button class="text-button" type="button" data-open-file>Cambiar Excel</button></div>' +
-      '<section class="metrics-grid" aria-label="Resumen del plan">' + metricsMarkup(weeks) + "</section>" +
-      weeklyLoadMarkup(uniqueDays(state.weeks).filter(day => currentMonth && day.date.getMonth() === currentMonth.index && day.date.getFullYear() === currentMonth.year), currentMonth ? monthTitle(currentMonth) : "") +
+      '</main>';
+  } else if (state.view === 'home') {
+    body = '<main id="drop-target" class="main-shell home-shell" data-page="home">' + todayMarkup() + '</main>';
+  } else if (state.view === 'calendar') {
+    body = '<main id="drop-target" class="main-shell" data-page="calendar">' + pageHeading('Calendario','Explorá los días y los meses de tu plan. Tocá una sesión para ver sus detalles y registrar cómo salió.') +
+      nearbyMarkup(new Date(),uniqueDays(state.weeks)) + nextSessionMarkup() +
       '<section class="calendar-panel"><div class="calendar-toolbar"><div class="calendar-heading"><p class="eyebrow">CALENDARIO DEL PLAN</p>' +
       '<h2>Entrenamientos</h2></div><div class="month-navigation">' +
       '<button class="month-arrow" type="button" data-month-step="-1" aria-label="Mes anterior"' + (activeMonthIndex <= 0 ? " disabled" : "") + '>‹</button>' +
@@ -615,17 +688,15 @@ function render() {
       '<div class="legend"><span><i class="legend-dot tone-lesion"></i>Lesión</span><span><i class="legend-dot tone-rest"></i>Descanso</span>' +
       '<span><i class="legend-dot tone-steady"></i>Amarillo</span><span><i class="legend-dot tone-controlled"></i>Naranja</span>' +
       '<span><i class="legend-dot tone-hard"></i>Rojo</span></div>' +
-      (state.error ? '<p class="error-message" role="alert">' + escapeHTML(state.error) + "</p>" : "") +
       (weeks.length ? weeks.map(week => weekCard(week, maximumKm)).join("") :
         '<div class="no-results"><strong>No hay entrenamientos para mostrar.</strong><span>Probá con otro mes o cambiá la búsqueda.</span>' +
         (state.search ? '<button class="text-button" data-clear-search type="button">Borrar búsqueda</button>' : "") + "</div>") +
       '<p class="estimate-note"><span>i</span> Los kilómetros se estiman leyendo las distancias escritas en cada sesión. Solo se suman días amarillos, naranjas y rojos con distancia explícita. Lesión y descanso quedan excluidos.</p>' +
       "</section></main>";
-  }
+  } else if (state.view === 'load') body = loadPage();
+  else body = statsPage();
 
-  if (state.weeks.length && state.view !== "calendar") body = statsPage();
-
-  app.innerHTML = '<div class="app-frame">' + header + syncStripMarkup() + (state.storageMessage ? '<p class="install-help" role="status">' + escapeHTML(state.storageMessage) + '</p>' : '') + (state.installHelp ? '<p class="install-help" role="status">' + escapeHTML(state.installHelp) + '</p>' : '') + body +
+  app.innerHTML = '<div class="app-frame">' + header + feedbackMarkup() + body +
     '<input id="excel-file" type="file" accept=".xlsx,.xlsm" hidden>' + modalMarkup(state.selectedDay) + "</div>";
   bindEvents();
   const monthStrip = document.querySelector(".month-strip");
@@ -678,7 +749,6 @@ async function loadFile(file, { restore = false, metadata = {}, preserveView = f
     } catch {
       state.recordsReady = false;
     }
-    state.view = "calendar";
     state.selectedDay = null;
     state.fileName = file.name;
     state.planSource = metadata.source === 'drive' ? 'drive' : 'local';
@@ -687,6 +757,7 @@ async function loadFile(file, { restore = false, metadata = {}, preserveView = f
     state.weeks = parsed.weeks;
     state.months = parsed.months;
     const years = [...new Set(uniqueDays(parsed.weeks).map(day => day.date.getFullYear()))];
+    if (state.loadYear !== 'all' && !years.includes(Number(state.loadYear))) state.loadYear = 'all';
     state.statsYear = years.includes(new Date().getFullYear()) ? new Date().getFullYear() : Math.max(...years);
     const today = new Date();
     const todayMonth = parsed.months.find(month =>

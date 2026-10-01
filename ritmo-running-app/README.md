@@ -32,3 +32,9 @@ Recargar consulta nuevamente Drive y Open-Meteo, aunque el clima esté en caché
 Si no hay una copia local, al abrir la app se intenta cargar el plan de Drive. Si existe, se abre primero y se consulta Drive cuando se toca Recargar. Los archivos importados manualmente se muestran hasta la próxima recarga de Drive. Borrar copia elimina el Excel local, no el archivo original ni los registros de sesiones.
 
 npm run dev incluye el endpoint de Drive mediante un middleware local de Vite. En Netlify se publica la función configurada en netlify.toml. El clima conserva su caché local de una hora; Recargar la omite y solicita datos nuevos. Las respuestas dinámicas de Drive no pasan por la caché del service worker.
+
+## Vistas y navegación
+
+El inicio muestra solamente el entrenamiento de hoy y su clima. El menú del encabezado lleva al calendario (incluye ayer, mañana y la próxima sesión), carga semanal, estadísticas del año, estadísticas generales y ajustes. En ajustes están Drive, la importación y copia local, instalación, ubicación y hora del clima. Recargar queda disponible en todas las vistas.
+
+Las vistas tienen enlaces propios mediante fragmentos como #inicio, #calendario y #ajustes. Abrir uno, recargar la página o usar Atrás conserva la vista correspondiente. Las notas y actividades hechas siguen guardándose por fecha, con independencia de la vista.
