@@ -38,3 +38,7 @@ npm run dev incluye el endpoint de Drive mediante un middleware local de Vite. E
 El inicio muestra solamente el entrenamiento de hoy y su clima. El menú del encabezado lleva al calendario (incluye ayer, mañana y la próxima sesión), carga semanal, estadísticas del año, estadísticas generales y ajustes. En ajustes están Drive, la importación y copia local, instalación, ubicación y hora del clima. Recargar queda disponible en todas las vistas.
 
 Las vistas tienen enlaces propios mediante fragmentos como #inicio, #calendario y #ajustes. Abrir uno, recargar la página o usar Atrás conserva la vista correspondiente. Las notas y actividades hechas siguen guardándose por fecha, con independencia de la vista.
+
+## Hora del clima
+
+El pronóstico usa las 19:00 de lunes a viernes y las 16:00 los sábados. Los domingos mantienen las 18:00. Junto al clima de hoy y en el detalle de cada sesión se puede elegir otra hora para esa fecha, sin afectar otras fechas. El cambio se mantiene solamente mientras la app siga abierta; al recargar la página o volver a abrirla se usa la hora predeterminada. La ubicación y el pronóstico siguen guardándose, pero las horas elegidas no se escriben en almacenamiento local y cualquier hora global guardada por una versión anterior se ignora.

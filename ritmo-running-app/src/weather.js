@@ -27,11 +27,18 @@ export function locationKey(location) {
 }
 export function readWeatherPreferences(storage = localStorageOrNull()) {
   const saved = readJSON(storage, PREFERENCES_KEY);
-  return { location: validLocation(saved?.location) ? saved.location : { ...DEFAULT_LOCATION },
-    hour: Number.isInteger(saved?.hour) && saved.hour >= 0 && saved.hour <= 23 ? saved.hour : 18 };
+  return { location: validLocation(saved?.location) ? saved.location : { ...DEFAULT_LOCATION } };
 }
 export function saveWeatherPreferences(preferences, storage = localStorageOrNull()) {
-  try { if (!storage) return false; storage.setItem(PREFERENCES_KEY, JSON.stringify(preferences)); return true; } catch { return false; }
+  try { if (!storage) return false; storage.setItem(PREFERENCES_KEY, JSON.stringify({location:preferences.location})); return true; } catch { return false; }
+}
+export function defaultTrainingHour(date) {
+  const weekday = new Date(date + 'T12:00:00Z').getUTCDay();
+  return weekday === 6 ? 16 : weekday >= 1 && weekday <= 5 ? 19 : 18;
+}
+export function trainingHourForDate(weather, date) {
+  const override = weather.hourOverrides?.[date];
+  return Number.isInteger(override) && override >= 0 && override <= 23 ? override : defaultTrainingHour(date);
 }
 export function forecastURL(location) {
   const params = new URLSearchParams({ latitude: location.latitude, longitude: location.longitude,
@@ -114,7 +121,7 @@ export function createWeatherClient({ storage = localStorageOrNull(), fetcher = 
 export function cityDate(record, now = new Date()) {
   return new Intl.DateTimeFormat('en-CA', { timeZone: record?.timezone || DEFAULT_LOCATION.timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
 }
-export function weatherForDate(record, date, hour = 18) {
+export function weatherForDate(record, date, hour = defaultTrainingHour(date)) {
   const day = record?.days?.[date];
   if (!day || typeof day !== 'object') return null;
   const hourly = day.hours?.[hour];

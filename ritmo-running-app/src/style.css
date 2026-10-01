@@ -780,3 +780,10 @@ button:disabled { cursor: not-allowed; }
   .topbar .topbar-right > .outline-button, .menu-trigger { padding: 10px 11px; font-size: 12px; }
   .menu-panel { top: calc(100% + 14px); }
 }
+
+.weather-time-control { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin: 20px 0 12px; padding-top: 16px; border-top: 1px solid #e3ebe0; }
+.weather-time-control label { display: grid; gap: 8px; color: #607762; font-size: 11px; font-weight: 750; }
+.weather-time-control select { min-height: 44px; min-width: 120px; padding: 10px 14px; border: 1px solid #d0dfc8; border-radius: 10px; background: #fff; color: #17352b; font-size: 16px; }
+.weather-time-control p { flex: 1 1 140px; margin: 0; color: #80907c; font-size: 11px; line-height: 1.7; }
+.weather-time-control .text-button { flex-basis: 100%; text-align: left; padding-left: 0; }
+.weather-controls { grid-template-columns: minmax(0, 1fr); }

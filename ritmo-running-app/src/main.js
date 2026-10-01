@@ -9,7 +9,7 @@ import { fetchDriveWorkbook } from "./drive.js";
 import "./style.css";
 
 const weatherClient = createWeatherClient();
-const weather = { ...readWeatherPreferences(), record: null, source: '', loading: false, locating: false, error: false, message: '' };
+const weather = { ...readWeatherPreferences(), hourOverrides:{}, record: null, source: '', loading: false, locating: false, error: false, message: '' };
 let weatherRequest = 0;
 let lastWeatherAttempt = 0;
 let geolocationRequest = 0;
@@ -385,15 +385,20 @@ function changeWeatherLocation(location) {
   weather.locating = false;
   weatherRequest += 1;
   Object.assign(weather, {location,record:null,source:'',error:false,message:''});
-  if (!saveWeatherPreferences({location:weather.location,hour:weather.hour})) weather.message = 'No se pudo guardar la ubicación en este navegador.';
+  if (!saveWeatherPreferences({location:weather.location})) weather.message = 'No se pudo guardar la ubicación en este navegador.';
   refreshWeather();
 }
 function bindWeatherEvents() {
-  document.querySelector('#weather-hour')?.addEventListener('change', event => {
-    weather.hour = Number(event.target.value);
-    if (!saveWeatherPreferences({location:weather.location,hour:weather.hour})) weather.message = 'No se pudo guardar la hora en este navegador.';
+  document.querySelectorAll('[data-weather-hour]').forEach(select=>select.addEventListener('change', event => {
+    const hour = Number(event.target.value);
+    if (!Number.isInteger(hour) || hour < 0 || hour > 23) return;
+    weather.hourOverrides[event.target.dataset.weatherHour] = hour;
     renderWeather();
-  });
+  }));
+  document.querySelectorAll('[data-weather-hour-reset]').forEach(button=>button.addEventListener('click',()=>{
+    delete weather.hourOverrides[button.dataset.weatherHourReset];
+    renderWeather();
+  }));
   document.querySelector('#weather-location')?.addEventListener('change', event => {
     if (event.target.value === 'buenos-aires') changeWeatherLocation({...DEFAULT_LOCATION});
     if (event.target.value === 'pilar') changeWeatherLocation({...PILAR_LOCATION});
@@ -631,7 +636,7 @@ function settingsPage() {
     '<section class="settings-card calendar-panel"><p class="eyebrow">EN TU DISPOSITIVO</p><h2>Instalar PaceUp</h2><p class="settings-copy">Abrí tu entrenamiento desde la pantalla principal de Android.</p>' +
     (isInstalled ? '<p class="installed-message">✓ Estás usando la app instalada.</p>' : '<button class="outline-button install-button" type="button" data-install>Instalar app</button>') +
     (state.installHelp ? '<p class="settings-copy" role="status">' + escapeHTML(state.installHelp) + '</p>' : '') + '</section>' +
-    '<section class="settings-weather"><p class="eyebrow">PREFERENCIAS DEL PRONÓSTICO</p><h2>Ubicación y hora de entrenamiento</h2><p class="settings-copy">El lugar y la hora elegidos se guardan para mostrar el clima junto a cada día.</p>' + weatherPanelMarkup(weather,dateKey(new Date()),{title:'Tu pronóstico',controls:true}) + '</section></main>';
+    '<section class="settings-weather"><p class="eyebrow">PREFERENCIAS DEL PRONÓSTICO</p><h2>Ubicación y hora de entrenamiento</h2><p class="settings-copy">Lunes a viernes: 19:00 · Sábados: 16:00 · Domingos: 18:00. Podés cambiar la hora junto al clima de cada día; ese cambio dura mientras la app siga abierta. Solo se guarda la ubicación.</p>' + weatherPanelMarkup(weather,dateKey(new Date()),{title:'Tu pronóstico',controls:true}) + '</section></main>';
 }
 
 function feedbackMarkup() {

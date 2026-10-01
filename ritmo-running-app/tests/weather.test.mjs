@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_LOCATION, PILAR_LOCATION, WEATHER_TTL, readWeatherPreferences, saveWeatherPreferences, createWeatherClient, normalizeForecast, forecastURL, weatherForDate, weatherAssessment, cityDate } from '../src/weather.js';
+import { DEFAULT_LOCATION, PILAR_LOCATION, WEATHER_TTL, readWeatherPreferences, saveWeatherPreferences, createWeatherClient, normalizeForecast, forecastURL, weatherForDate, weatherAssessment, cityDate, defaultTrainingHour, trainingHourForDate } from '../src/weather.js';
 import { weatherPanelMarkup, dayWeatherMarkup } from '../src/weatherView.js';
 const storage = () => { const values=new Map();return {getItem:key=>values.get(key)||null,setItem:(key,value)=>values.set(key,value),values}; };
 const fixture = () => ({timezone:'America/Argentina/Buenos_Aires',daily:{time:['2026-09-30','2026-10-01'],weather_code:[1,95],temperature_2m_max:[24,22],temperature_2m_min:[12,14],precipitation_probability_max:[10,80],precipitation_sum:[0,5],wind_speed_10m_max:[10,18],wind_gusts_10m_max:[15,30]},hourly:{time:['2026-09-30T18:00','2026-09-30T12:00','2026-10-01T18:00'],weather_code:[1,1,95],temperature_2m:[20,29,18],apparent_temperature:[19,30,18],precipitation_probability:[0,0,80],precipitation:[0,0,3],wind_speed_10m:[10,10,18],wind_gusts_10m:[15,15,30]}});
@@ -82,11 +82,31 @@ test('corrupt or unavailable storage is recoverable; quota failure is reported w
   assert.equal((await recovered.load(DEFAULT_LOCATION)).source,'network');
 });
 
-test('location and training hour survive restart; invalid coordinates and hours revert to defaults', () => {
+test('location survives restart but legacy and temporary hours are never restored or saved', () => {
   const local=storage();saveWeatherPreferences({hour:12,location:PILAR_LOCATION},local);
-  assert.equal(readWeatherPreferences(local).hour,12);assert.equal(readWeatherPreferences(local).location.name,'Pilar · Hebraica');
+  assert.equal(readWeatherPreferences(local).hour,undefined);assert.equal(readWeatherPreferences(local).location.name,'Pilar · Hebraica');
+  assert.equal(JSON.parse(local.getItem('paceup-weather-preferences-v1')).hour,undefined);
+  local.setItem('paceup-weather-preferences-v1',JSON.stringify({location:PILAR_LOCATION,hour:4}));
+  assert.equal(trainingHourForDate(readWeatherPreferences(local),'2026-10-03'),16);
   saveWeatherPreferences({hour:99,location:{...DEFAULT_LOCATION,latitude:300}},local);
-  assert.equal(readWeatherPreferences(local).hour,18);assert.equal(readWeatherPreferences(local).location.name,'Buenos Aires');
+  assert.equal(readWeatherPreferences(local).location.name,'Buenos Aires');
+});
+
+test('calendar defaults select the right hourly forecast and overrides stay isolated by date', () => {
+  for(const date of ['2026-09-28','2026-09-29','2026-09-30','2026-10-01','2026-10-02','2027-01-01'])assert.equal(defaultTrainingHour(date),19);
+  assert.equal(defaultTrainingHour('2026-10-03'),16);assert.equal(defaultTrainingHour('2026-10-04'),18);
+  const record={savedAt:now,timezone:DEFAULT_LOCATION.timezone,days:{
+    '2026-10-01':{code:1,max:30,min:12,hours:{19:{temperature:21},12:{temperature:29}}},
+    '2026-10-03':{code:1,max:30,min:12,hours:{16:{temperature:23},12:{temperature:28}}}
+  }};
+  assert.equal(weatherForDate(record,'2026-10-01').temperature,21);
+  assert.equal(weatherForDate(record,'2026-10-03').temperature,23);
+  const weather={record,location:DEFAULT_LOCATION,now,hourOverrides:{'2026-10-03':12}};
+  assert.equal(trainingHourForDate(weather,'2026-10-01'),19);
+  assert.match(weatherPanelMarkup(weather,'2026-10-03'),/12:00 · hora del lugar/);
+  assert.match(dayWeatherMarkup(weather,'2026-10-03'),/28°/);
+  assert.match(weatherPanelMarkup(weather,'2026-10-01'),/19:00 · hora del lugar/);
+  assert.equal(trainingHourForDate({hourOverrides:{'2026-10-03':99}},'2026-10-03'),16);
 });
 
 test('retained predictions stay labeled as predictions and cache stays bounded per location', async () => {
