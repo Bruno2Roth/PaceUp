@@ -54,6 +54,8 @@ const app = document.querySelector("#app");
 function navigateToView(key, {history = true} = {}) {
   const view = VIEWS.find(view=>view.key === key);
   if (!view) return;
+  const menu = document.querySelector('.app-menu[open]');
+  if (menu) menu.open = false;
   state.view = key;
   state.selectedDay = null;
   if (history && window.location?.hash !== view.hash) window.history?.pushState(null,'',view.hash);
@@ -227,9 +229,16 @@ function weeklyLoadMarkup(days, scope = "") {
     }).join('') + '</div></div><details class="load-table-details"><summary>Ver kilómetros y días por semana</summary><div class="stats-table-wrap"><table class="stats-table"><thead><tr><th>Semana</th><th>Km</th><th>🟡 Días</th><th>🟠 Días</th><th>🔴 Días</th><th>Datos</th></tr></thead><tbody>' + weeks.map(w => '<tr><th scope="row">' + formatDate(w.start, {day:'numeric',month:'short',year:'numeric'}) + '</th><td>' + formatKm(w.kilometers) + '</td><td>' + w.counts.steady + '</td><td>' + w.counts.controlled + '</td><td>' + w.counts.hard + '</td><td>' + w.days.length + '/7 días</td></tr>').join('') + '</tbody></table></div></details><p class="stats-note">Las semanas parciales se identifican y no se comparan en porcentaje. Las fechas duplicadas se cuentan una sola vez.</p></section>';
 }
 
-function viewNavigation() {
-  return '<details class="app-menu"><summary class="outline-button menu-trigger"><span class="menu-icon" aria-hidden="true"><i></i><i></i><i></i></span>Menú</summary><nav class="menu-panel" aria-label="Vistas de PaceUp"><p class="menu-heading">TU ESPACIO DE RUNNING</p>' +
-    VIEWS.map(view=>'<a href="' + view.hash + '" data-view="' + view.key + '"' + (state.view === view.key ? ' aria-current="page"' : '') + '><span><strong>' + view.label + '</strong><small>' + view.description + '</small></span><span aria-hidden="true">↗</span></a>').join('') + '</nav></details>';
+function viewLinks() {
+  return VIEWS.map(view=>'<a href="' + view.hash + '" data-view="' + view.key + '"' + (state.view === view.key ? ' aria-current="page"' : '') + '><span><strong>' + view.label + '</strong><small>' + view.description + '</small></span><span aria-hidden="true">›</span></a>').join('');
+}
+
+function viewNavigation(open = false) {
+  return '<details class="app-menu"' + (open ? ' open' : '') + '><summary class="outline-button menu-trigger" aria-controls="mobile-view-menu"><span class="menu-icon" aria-hidden="true"><i></i><i></i><i></i></span>Menú</summary><nav id="mobile-view-menu" class="menu-panel" aria-label="Vistas de PaceUp"><p class="menu-heading">ELEGÍ UNA PANTALLA</p>' + viewLinks() + '</nav></details>';
+}
+
+function desktopNavigation() {
+  return '<aside class="view-sidebar"><nav class="sidebar-panel" aria-label="Menú principal"><p class="menu-heading">MENÚ PRINCIPAL</p>' + viewLinks() + '</nav></aside>';
 }
 
 function statsPage() {
@@ -320,7 +329,7 @@ function metricsMarkup(weeks) {
 }
 
 function loadingMarkup() {
-  return '<main class="boot" aria-label="Cargando PaceUp"><div class="boot-mark" aria-hidden="true"><i></i><i></i><i></i></div><h1>PaceUp</h1><p>Tu próximo paso empieza acá.</p><div class="boot-progress" aria-hidden="true"><span></span></div><small role="status">' + (drive.syncing ? 'Consultando Running.xlsx en Drive…' : 'Preparando tu plan…') + '</small><span class="boot-footer">Tu ritmo. Tu camino.</span></main>';
+  return '<section class="boot" aria-label="Cargando PaceUp"><div class="boot-mark" aria-hidden="true"><i></i><i></i><i></i></div><h1>PaceUp</h1><p>Tu próximo paso empieza acá.</p><div class="boot-progress" aria-hidden="true"><span></span></div><small role="status">' + (drive.syncing ? 'Consultando Running.xlsx en Drive…' : 'Preparando tu plan…') + '</small><span class="boot-footer">Tu ritmo. Tu camino.</span></section>';
 }
 
 function emptyState() {
@@ -690,6 +699,10 @@ function offlineBannerMarkup() {
 }
 
 function render() {
+  const openMenu = document.querySelector('.app-menu[open]');
+  const menuScroll = openMenu?.querySelector('.menu-panel')?.scrollTop || 0;
+  const menuHadFocus = Boolean(document.activeElement?.closest('.app-menu'));
+  const focusedMenuView = menuHadFocus ? document.activeElement.dataset?.view : null;
   const monthStripScroll = document.querySelector(".month-strip")?.scrollLeft;
   const weeks = selectedWeeks();
   const currentMonth = state.months.find(month => month.name + "-" + month.year === state.activeMonth);
@@ -707,7 +720,7 @@ function render() {
   }).join("");
   const header = '<header class="topbar"><a class="brand" href="#inicio" data-view="home" aria-label="PaceUp, inicio">' +
     '<span class="brand-symbol"><span></span><span></span><span></span></span><span>PaceUp</span></a>' +
-    '<div class="topbar-right"><button class="outline-button reload-button" type="button" data-reload' + (network.offline || network.initializing || state.loading || state.savingSession || drive.syncing || drive.reloading ? ' disabled' : '') + '>' + (network.offline ? 'Sin conexión' : drive.reloading || drive.syncing ? 'Recargando…' : 'Recargar') + '</button>' + viewNavigation() + '</div></header>';
+    '<div class="topbar-right"><button class="outline-button reload-button" type="button" data-reload' + (network.offline || network.initializing || state.loading || state.savingSession || drive.syncing || drive.reloading ? ' disabled' : '') + '>' + (network.offline ? 'Sin conexión' : drive.reloading || drive.syncing ? 'Recargando…' : 'Recargar') + '</button>' + viewNavigation(Boolean(openMenu)) + '</div></header>';
 
   let body;
   if (state.view === 'settings') {
@@ -743,9 +756,15 @@ function render() {
   } else if (state.view === 'load') body = loadPage();
   else body = statsPage();
 
-  app.innerHTML = '<div class="app-frame">' + header + offlineBannerMarkup() + feedbackMarkup() + body +
+  app.innerHTML = '<div class="app-frame">' + header + '<div class="app-layout">' + desktopNavigation() + '<div class="view-content">' + offlineBannerMarkup() + feedbackMarkup() + body + '</div></div>' +
     (network.offline ? '<input id="excel-file" type="file" accept=".xlsx,.xlsm" hidden>' : '') + modalMarkup(state.selectedDay) + "</div>";
   bindEvents();
+  const menuPanel = document.querySelector('.app-menu[open] .menu-panel');
+  if (menuPanel) {
+    menuPanel.scrollTop = menuScroll;
+    if (focusedMenuView) menuPanel.querySelector('[data-view="' + focusedMenuView + '"]')?.focus({preventScroll:true});
+    else if (menuHadFocus) document.querySelector('.menu-trigger')?.focus({preventScroll:true});
+  }
   const monthStrip = document.querySelector(".month-strip");
   if (monthStrip && monthStripScroll !== undefined) monthStrip.scrollLeft = monthStripScroll;
 }
