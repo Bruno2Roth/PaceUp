@@ -4,6 +4,8 @@ import { parseRunningWorkbook } from "./parser.js";
 import { readXlsx } from "./readXlsx.js";
 import { DEFAULT_LOCATION, PILAR_LOCATION, readWeatherPreferences, saveWeatherPreferences, createWeatherClient } from "./weather.js";
 import { dayWeatherMarkup, weatherPanelMarkup } from "./weatherView.js";
+import { RUNNING_DRIVE } from "./driveConfig.js";
+import { fetchDriveWorkbook } from "./drive.js";
 import "./style.css";
 
 const weatherClient = createWeatherClient();
@@ -11,6 +13,7 @@ const weather = { ...readWeatherPreferences(), record: null, source: '', loading
 let weatherRequest = 0;
 let lastWeatherAttempt = 0;
 let geolocationRequest = 0;
+const drive = { syncing:false, reloading:false, message:'', status:'idle' };
 
 const state = {
   records: {},
@@ -22,6 +25,9 @@ const state = {
   view: "calendar",
   statsYear: "",
   fileName: "",
+  planSource: "local",
+  driveRevision: "",
+  driveCheckedAt: 0,
   weeks: [],
   months: [],
   activeMonth: "",
@@ -124,7 +130,7 @@ function doneBadge(day) {
 function doneButton(day) {
   if (!isActivity(day) && !sessionRecord(day).done) return '';
   const done = Boolean(sessionRecord(day).done);
-  return '<button class="completion-button' + (done ? ' is-done' : '') + '" type="button" data-toggle-done="' + escapeHTML(day.id) + '" aria-pressed="' + done + '"' + (!state.recordsReady || state.savingSession || state.loading ? ' disabled' : '') + '>' + (done ? '✓ Hecha · desmarcar' : 'Marcar como hecha') + '</button>';
+  return '<button class="completion-button' + (done ? ' is-done' : '') + '" type="button" data-toggle-done="' + escapeHTML(day.id) + '" aria-pressed="' + done + '"' + (!state.recordsReady || state.savingSession || state.loading || drive.syncing || drive.reloading ? ' disabled' : '') + '>' + (done ? '✓ Hecha · desmarcar' : 'Marcar como hecha') + '</button>';
 }
 
 function planChangeMarkup(day) {
@@ -268,7 +274,7 @@ function metricsMarkup(weeks) {
 }
 
 function loadingMarkup() {
-  return '<main class="boot" aria-label="Cargando PaceUp"><div class="boot-mark" aria-hidden="true"><i></i><i></i><i></i></div><h1>PaceUp</h1><p>Tu próximo paso empieza acá.</p><div class="boot-progress" aria-hidden="true"><span></span></div><small role="status">Preparando tu plan…</small><span class="boot-footer">Tu ritmo. Tu camino.</span></main>';
+  return '<main class="boot" aria-label="Cargando PaceUp"><div class="boot-mark" aria-hidden="true"><i></i><i></i><i></i></div><h1>PaceUp</h1><p>Tu próximo paso empieza acá.</p><div class="boot-progress" aria-hidden="true"><span></span></div><small role="status">' + (drive.syncing ? 'Consultando Running.xlsx en Drive…' : 'Preparando tu plan…') + '</small><span class="boot-footer">Tu ritmo. Tu camino.</span></main>';
 }
 
 function emptyState() {
@@ -290,11 +296,11 @@ function modalMarkup(day) {
     (['steady','controlled','hard'].includes(day.trainingColor) && day.kilometers !== null ? '<div class="modal-distance">' + formatKm(day.kilometers) + ' en el plan</div>' : '') +
     (day.description ? '<div class="modal-description">' + cleanText(day.description) + '</div>' : '<p class="modal-description muted">La planilla no tiene una descripción para este día.</p>') +
     (distance?.warning ? '<p class="record-warning">' + escapeHTML(distance.warning) + '</p>' : distance?.parts?.length ? '<details class="distance-breakdown"><summary>Cómo se calculó la distancia</summary><p>' + escapeHTML(distance.source) + '</p><ul>' + distance.parts.map(part => '<li>' + escapeHTML(part.label) + ' = ' + formatKm(part.kilometers) + '</li>').join('') + '</ul><p>El título y la descripción no se suman dos veces.</p></details>' : '') +
-    planChangeMarkup(day) + '<details class="modal-weather"><summary>Ver clima de este día</summary>' + weatherPanelMarkup(weather, dateKey(day.date)) + '</details><div class="session-controls">' + doneButton(day) + '</div><label class="session-note-label" for="session-note">Tu nota del entrenamiento</label><textarea id="session-note" rows="3" maxlength="3000" placeholder="Sensaciones, cambios o cómo salió…"' + (!state.recordsReady || state.savingSession ? ' disabled' : '') + '>' + escapeHTML(note) + '</textarea><button class="outline-button" type="button" data-save-note="' + escapeHTML(day.id) + '"' + (!state.recordsReady || state.savingSession ? ' disabled' : '') + '>Guardar nota</button><p class="modal-footnote">Las marcas de hecha y las notas se guardan en este navegador por fecha y se conservan al actualizar el Excel.</p></section></div>';
+    planChangeMarkup(day) + '<details class="modal-weather"><summary>Ver clima de este día</summary>' + weatherPanelMarkup(weather, dateKey(day.date)) + '</details><div class="session-controls">' + doneButton(day) + '</div><label class="session-note-label" for="session-note">Tu nota del entrenamiento</label><textarea id="session-note" rows="3" maxlength="3000" placeholder="Sensaciones, cambios o cómo salió…"' + (!state.recordsReady || state.savingSession || drive.syncing || drive.reloading ? ' disabled' : '') + '>' + escapeHTML(note) + '</textarea><button class="outline-button" type="button" data-save-note="' + escapeHTML(day.id) + '"' + (!state.recordsReady || state.savingSession || drive.syncing || drive.reloading ? ' disabled' : '') + '>Guardar nota</button><p class="modal-footnote">Las marcas de hecha y las notas se guardan en este navegador por fecha y se conservan al actualizar el Excel.</p></section></div>';
 }
 
 async function saveDayRecord(day, patch) {
-  if (!state.recordsReady || state.savingSession || state.loading) return;
+  if (!state.recordsReady || state.savingSession || state.loading || drive.syncing || drive.reloading) return;
   state.savingSession = true;
   render();
   try {
@@ -357,7 +363,7 @@ function bindWeatherEvents() {
     if (event.target.value === 'buenos-aires') changeWeatherLocation({...DEFAULT_LOCATION});
     if (event.target.value === 'pilar') changeWeatherLocation({...PILAR_LOCATION});
   });
-  document.querySelector('[data-weather-refresh]')?.addEventListener('click', () => refreshWeather({force:true}));
+  document.querySelector('[data-weather-refresh]')?.addEventListener('click', () => reloadEverything());
   document.querySelector('[data-weather-geolocate]')?.addEventListener('click', () => {
     if (weather.locating) return;
     if (!navigator.geolocation) { weather.message = 'Este navegador no permite consultar tu ubicación. Elegí una ciudad.'; renderWeather(); return; }
@@ -374,7 +380,50 @@ function bindWeatherEvents() {
   });
 }
 
+function syncStripMarkup() {
+  const checked = state.driveCheckedAt ? 'Última consulta: ' + new Intl.DateTimeFormat('es-AR',{dateStyle:'short',timeStyle:'short'}).format(new Date(state.driveCheckedAt)) : 'Recargar consulta tu plan de Drive y el clima';
+  return '<section class="sync-strip sync-' + drive.status + '" aria-label="Conexión con Drive"><div><strong><a href="' + escapeHTML(RUNNING_DRIVE.url) + '" target="_blank" rel="noopener noreferrer">Drive · ' + escapeHTML(RUNNING_DRIVE.name) + ' ↗</a></strong><span>' + escapeHTML(checked) + '</span></div>' +
+    '<p role="status">' + escapeHTML(drive.syncing ? 'Consultando el Excel de Drive…' : drive.message || (state.planSource === 'drive' ? 'Copia de Drive guardada en este navegador.' : state.fileName ? 'Estás viendo un archivo importado. Recargar traerá el plan de Drive.' : 'Tu plan se guarda localmente después de sincronizar.')) + '</p></section>';
+}
+async function syncDrive() {
+  if (drive.syncing || state.loading || state.savingSession) return {ok:false,message:'Esperá a que termine el guardado actual.'};
+  drive.syncing = true;drive.status = 'working';drive.message = '';
+  render();
+  try {
+    const incoming = await fetchDriveWorkbook();
+    let persisted = true;
+    if (state.planSource === 'drive' && state.driveRevision === incoming.driveRevision && state.weeks.length) {
+      try { await saveWorkbook(incoming.name, incoming.buffer, incoming); } catch { persisted = false; }
+      state.driveCheckedAt = incoming.driveCheckedAt;
+      drive.message = 'Drive revisado: el plan no cambió.';
+    } else {
+      const loaded = await loadFile(new File([incoming.buffer], incoming.name), { metadata:incoming, preserveView:true });
+      if (!loaded?.loaded) throw new Error(loaded?.error || 'No se pudo abrir el plan de Drive. Se conserva la copia anterior.');
+      persisted = loaded.persisted;
+      drive.message = 'Plan actualizado desde Drive. Las notas y las marcas de hecha se conservaron.';
+    }
+    if (!persisted) drive.message += ' No se pudo guardar la nueva copia local; al volver se abrirá la anterior.';
+    drive.status = persisted ? 'ok' : 'warning';
+    return {ok:true,persisted,message:drive.message};
+  } catch (error) {
+    drive.status = 'warning';drive.message = (error?.message || 'No se pudo consultar Drive.') + (state.weeks.length ? ' Se sigue mostrando el plan que ya estaba abierto.' : ' Podés importar el Excel desde tu dispositivo.');
+    return {ok:false,message:drive.message};
+  } finally { drive.syncing = false;render(); }
+}
+async function reloadEverything() {
+  if (drive.reloading || drive.syncing || state.loading || state.savingSession) return;
+  drive.reloading = true;weather.reloading = true;
+  render();
+  const results = await Promise.allSettled([syncDrive(),refreshWeather({force:true})]);
+  const plan = results[0].status === 'fulfilled' ? results[0].value : {ok:false,message:'No se pudo consultar Drive. Se conserva la copia local.'};
+  drive.message = plan.message + (weather.error ? ' El clima no se pudo actualizar; se conserva la última copia disponible.' : ' Clima actualizado.');
+  drive.status = plan.ok && plan.persisted && !weather.error ? 'ok' : 'warning';
+  drive.reloading = false;weather.reloading = false;
+  render();
+}
+
 function bindEvents() {
+  document.querySelector('[data-reload]')?.addEventListener('click', () => reloadEverything());
   bindWeatherEvents();
   document.querySelectorAll('[data-toggle-done]').forEach(button => button.addEventListener('click', () => {
     const day = uniqueDays(state.weeks).find(day => day.id === button.dataset.toggleDone);
@@ -390,12 +439,12 @@ function bindEvents() {
     if (day) saveDayRecord(day, { note: document.querySelector('#session-note').value });
   });
   document.querySelector('[data-forget-file]')?.addEventListener('click', async () => {
-    if (state.loading || state.savingSession) return;
+    if (state.loading || state.savingSession || drive.syncing || drive.reloading) return;
     state.loading = true;
     render();
     try {
       await deleteWorkbook();
-      Object.assign(state, { fileName: '', weeks: [], months: [], activeMonth: '', search: '', selectedDay: null, view: 'calendar', error: '', storageMessage: 'Excel eliminado. Tus sesiones hechas y tus notas se conservan por fecha.' });
+      Object.assign(state, { fileName: '', planSource:'local',driveRevision:'',driveCheckedAt:0, weeks: [], months: [], activeMonth: '', search: '', selectedDay: null, view: 'calendar', error: '', storageMessage: 'Excel eliminado. Tus sesiones hechas y tus notas se conservan por fecha.' });
     } catch {
       state.storageMessage = 'No se pudo borrar el Excel guardado. Volvé a intentarlo.';
     } finally { state.loading = false; render(); }
@@ -427,7 +476,7 @@ function bindEvents() {
     render();
   });
   document.querySelectorAll("[data-open-file]").forEach(button =>
-    button.addEventListener("click", () => { if (!state.loading && !state.savingSession) document.querySelector("#excel-file").click(); })
+    button.addEventListener("click", () => { if (!state.loading && !state.savingSession && !drive.syncing && !drive.reloading) document.querySelector("#excel-file").click(); })
   );
   document.querySelector("#excel-file").addEventListener("change", event => {
     const file = event.target.files && event.target.files[0];
@@ -538,14 +587,14 @@ function render() {
   }).join("");
   const header = '<header class="topbar"><a class="brand" href="#" aria-label="PaceUp, inicio">' +
     '<span class="brand-symbol"><span></span><span></span><span></span></span><span>PaceUp</span></a>' +
-    '<div class="topbar-right">' + (isInstalled ? '' : '<button class="outline-button install-button" type="button" data-install>Instalar app</button>') + '<span class="local-badge"><span class="status-dot"></span>Se procesa en tu navegador</span>' +
+    '<div class="topbar-right">' + '<button class="outline-button reload-button" type="button" data-reload' + (state.loading || state.savingSession || drive.syncing || drive.reloading ? ' disabled' : '') + '>' + (drive.reloading || drive.syncing ? 'Recargando…' : 'Recargar') + '</button>' + (isInstalled ? '' : '<button class="outline-button install-button" type="button" data-install>Instalar app</button>') + '<span class="local-badge"><span class="status-dot"></span>Se procesa en tu navegador</span>' +
     '<button class="outline-button" type="button" data-open-file>' +
-    (state.fileName ? "Cambiar Excel" : "Importar Excel") + "</button>" + (state.fileName ? '<button class="outline-button" type="button" data-forget-file' + (state.loading ? ' disabled' : '') + '>Borrar Excel</button>' : '') + "</div></header>";
+    (state.fileName ? "Cambiar Excel" : "Importar Excel") + "</button>" + (state.fileName ? '<button class="outline-button" type="button" data-forget-file' + (state.loading || drive.syncing || drive.reloading ? ' disabled' : '') + '>Borrar copia</button>' : '') + "</div></header>";
 
   let body;
   if (!state.weeks.length) {
     body = '<main id="drop-target" class="main-shell empty-shell">' +
-      (state.loading ? loadingMarkup() : emptyState()) +
+      ((state.loading || drive.syncing) ? loadingMarkup() : emptyState()) +
       (state.error ? '<p class="error-message" role="alert">' + escapeHTML(state.error) + "</p>" : "") + "</main>";
   } else {
     body = '<main id="drop-target" class="main-shell">' + viewNavigation() +
@@ -576,15 +625,17 @@ function render() {
 
   if (state.weeks.length && state.view !== "calendar") body = statsPage();
 
-  app.innerHTML = '<div class="app-frame">' + header + (state.storageMessage ? '<p class="install-help" role="status">' + escapeHTML(state.storageMessage) + '</p>' : '') + (state.installHelp ? '<p class="install-help" role="status">' + escapeHTML(state.installHelp) + '</p>' : '') + body +
+  app.innerHTML = '<div class="app-frame">' + header + syncStripMarkup() + (state.storageMessage ? '<p class="install-help" role="status">' + escapeHTML(state.storageMessage) + '</p>' : '') + (state.installHelp ? '<p class="install-help" role="status">' + escapeHTML(state.installHelp) + '</p>' : '') + body +
     '<input id="excel-file" type="file" accept=".xlsx,.xlsm" hidden>' + modalMarkup(state.selectedDay) + "</div>";
   bindEvents();
   const monthStrip = document.querySelector(".month-strip");
   if (monthStrip && monthStripScroll !== undefined) monthStrip.scrollLeft = monthStripScroll;
 }
 
-async function loadFile(file, { restore = false } = {}) {
-  if ((state.loading || state.savingSession) && !restore) return;
+async function loadFile(file, { restore = false, metadata = {}, preserveView = false } = {}) {
+  if ((state.loading || state.savingSession || drive.syncing && metadata.source !== 'drive') && !restore) return {loaded:false};
+  const previous = preserveView ? {view:state.view,activeMonth:state.activeMonth,search:state.search,statsYear:state.statsYear,selectedDate:state.selectedDay ? dateKey(state.selectedDay.date) : null} : null;
+  let result = {loaded:false};
   const extension = file.name.split(".").pop().toLowerCase();
   if (!["xlsx", "xlsm"].includes(extension)) {
     state.error = "Elegí un archivo .xlsx o .xlsm. Los archivos .xls antiguos todavía no son compatibles.";
@@ -630,6 +681,9 @@ async function loadFile(file, { restore = false } = {}) {
     state.view = "calendar";
     state.selectedDay = null;
     state.fileName = file.name;
+    state.planSource = metadata.source === 'drive' ? 'drive' : 'local';
+    state.driveRevision = state.planSource === 'drive' ? metadata.driveRevision || '' : '';
+    state.driveCheckedAt = state.planSource === 'drive' ? metadata.driveCheckedAt || 0 : 0;
     state.weeks = parsed.weeks;
     state.months = parsed.months;
     const years = [...new Set(uniqueDays(parsed.weeks).map(day => day.date.getFullYear()))];
@@ -641,11 +695,20 @@ async function loadFile(file, { restore = false } = {}) {
     const preferredMonth = todayMonth || parsed.months[parsed.months.length - 1];
     state.activeMonth = preferredMonth.name + "-" + preferredMonth.year;
     state.search = "";
+    if (previous) {
+      state.view = previous.view;
+      state.search = previous.search;
+      if (parsed.months.some(month => monthKey(month) === previous.activeMonth)) state.activeMonth = previous.activeMonth;
+      if (years.includes(Number(previous.statsYear))) state.statsYear = previous.statsYear;
+      state.selectedDay = uniqueDays(parsed.weeks).find(day => dateKey(day.date) === previous.selectedDate) || null;
+    }
+    result = {loaded:true,persisted:restore};
     if (restore) {
       if (state.recordsReady) state.storageMessage = '';
     } else {
       try {
-        await saveWorkbook(file.name, buffer);
+        await saveWorkbook(file.name, buffer, metadata);
+        result.persisted = true;
         state.storageMessage = 'Excel guardado en este navegador. Tus marcas y notas se conservan.';
       } catch {
         state.storageMessage = 'El plan está abierto, pero no se pudo guardar en este navegador. Tendrás que cargarlo de nuevo al volver.';
@@ -655,12 +718,14 @@ async function loadFile(file, { restore = false } = {}) {
     else if (markedHistorical) state.storageMessage += ' ' + markedHistorical + ' actividades hasta el 30/09/2026 quedaron hechas.';
   } catch (error) {
     state.error = error?.message || "No se pudo leer el archivo. Probá con otra copia de Excel.";
+    result.error = state.error;
   } finally {
     if (!state.recordsReady) state.storageMessage += ' No se pudieron leer tus registros: marcar sesiones y guardar notas queda desactivado para protegerlos.';
     state.loading = false;
     render();
-    scrollToMonth(state.activeMonth);
+    if (!preserveView) scrollToMonth(state.activeMonth);
   }
+  return result;
 }
 
 async function restoreSavedWorkbook() {
@@ -678,7 +743,7 @@ async function restoreSavedWorkbook() {
     const saved = await readWorkbook();
     if (saved) {
       if (typeof saved.name !== 'string' || !(saved.buffer instanceof ArrayBuffer)) throw new Error('Archivo guardado inválido');
-      await loadFile(new File([saved.buffer], saved.name), { restore: true });
+      await loadFile(new File([saved.buffer], saved.name), { restore: true, metadata:saved });
     }
   } catch {
     state.storageMessage = 'No se pudo recuperar el Excel guardado. Podés volver a cargarlo.';
@@ -687,7 +752,11 @@ async function restoreSavedWorkbook() {
     render();
   }
 }
-restoreSavedWorkbook();
+restoreSavedWorkbook().then(() => {
+  // An existing local copy opens immediately, including offline. First-time
+  // visitors get the linked plan; subsequent explicit reloads check both APIs.
+  if (!state.fileName) syncDrive();
+});
 refreshWeather();
 
 let lastToday = new Date().toDateString();

@@ -21,7 +21,7 @@ test('one batch includes all dates, explicit units and local time with no API ke
 
 test('fresh persistent cache avoids API calls across reloads and expired data refreshes', async () => {
   const local=storage();let calls=0,clock=now;
-  const options={storage:local,now:()=>clock,fetcher:async()=>{calls++;return response(fixture());}};
+  const options={storage:local,now:()=>clock,fetcher:async(url,opts)=>{assert.equal(opts.cache,'no-store');calls++;return response(fixture());}};
   const a=createWeatherClient(options);assert.equal((await a.load(DEFAULT_LOCATION)).source,'network');
   const b=createWeatherClient(options);assert.equal((await b.load(DEFAULT_LOCATION)).source,'cache');assert.equal(calls,1);
   clock+=WEATHER_TTL+1;assert.equal((await b.load(DEFAULT_LOCATION)).source,'network');assert.equal(calls,2);

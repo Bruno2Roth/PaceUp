@@ -31,8 +31,10 @@ async function transaction(mode, operation, storeName = STORE) {
   }
 }
 
-export function saveWorkbook(name, buffer) {
-  return transaction('readwrite', store => store.put({ name, buffer, savedAt: Date.now() }, KEY));
+export function saveWorkbook(name, buffer, metadata = {}) {
+  const source = metadata.source === 'drive' ? 'drive' : 'local';
+  return transaction('readwrite', store => store.put({ name, buffer, savedAt: Date.now(), source,
+    ...(source === 'drive' ? {driveFileId:metadata.driveFileId,driveRevision:metadata.driveRevision,driveCheckedAt:metadata.driveCheckedAt} : {}) }, KEY));
 }
 
 export function readWorkbook() {

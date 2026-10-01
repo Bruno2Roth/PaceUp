@@ -91,7 +91,7 @@ export function createWeatherClient({ storage = localStorageOrNull(), fetcher = 
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 12000);
       try {
-        const response = await fetcher(forecastURL(location), { signal: controller.signal });
+        const response = await fetcher(forecastURL(location), { signal: controller.signal, cache: 'no-store' });
         if (!response.ok) throw new Error('No se pudo actualizar el clima');
         const record = normalizeForecast(await response.json(), location, now());
         // Retain previous forecasts for recent past days; these are saved predictions,

@@ -705,3 +705,21 @@ button:disabled { cursor: not-allowed; }
 .modal-weather { margin-top: 16px; border-top: 1px solid #e3ebe0; }
 .modal-weather > summary { padding: 14px 0; cursor: pointer; color: #496b52; font-size: 12px; font-weight: 700; }
 .detail-modal .modal-weather .weather-panel-surface { margin-top: 0; margin-bottom: 18px; }
+
+/* One reload checks the linked plan and the weather. */
+.reload-button { background: #eaf4df; border-color: #c4d9b1; }
+.sync-strip { width: min(1360px, calc(100% - 56px)); margin: 18px auto 0; padding: 14px 18px; display: flex; align-items: center; justify-content: space-between; gap: 14px 24px; border: 1px solid #dce7d5; border-radius: 13px; background: #f8fbf4; color: #59715c; }
+.sync-strip > div { display: grid; gap: 6px; flex: 0 1 auto; min-width: 0; }
+.sync-strip a { color: #315941; text-decoration: none; font-size: 12px; }
+.sync-strip a:hover { text-decoration: underline; }
+.sync-strip span { font-size: 10px; line-height: 1.5; }
+.sync-strip > p { margin: 0; font-size: 11px; line-height: 1.6; max-width: 640px; }
+.sync-warning { background: #fff7e5; border-color: #ebdebe; color: #89681e; }
+.sync-working { background: #edf4e7; }
+@media(max-width:720px) {
+  .sync-strip { width: calc(100% - 30px); padding: 12px 14px; flex-direction: column; align-items: flex-start; gap: 10px; }
+}
+@media(max-width:540px) {
+  .topbar-right { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); width: 100%; }
+  .topbar-right .outline-button { min-width: 0; }
+}

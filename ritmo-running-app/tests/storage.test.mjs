@@ -47,5 +47,14 @@ test('IndexedDB v1 migration, separate stores, atomic patch merging, rollback an
   try { await assert.rejects(seedHistoricalSessions([historical('2026-09-27')])); }
   finally { IDBDatabase.prototype.transaction=original; }
   assert.equal((await readSessionRecords()).find(r=>r.date==='2026-09-27'),undefined);
+  const meta={source:'drive',driveFileId:'running-id',driveRevision:'a'.repeat(64),driveCheckedAt:Date.now()};
+  await saveWorkbook('Running.xlsx',new Uint8Array([1,2,3]).buffer,meta);
+  const before=await readWorkbook();assert.equal(before.driveRevision,meta.driveRevision);assert.equal(before.source,'drive');
+  IDBDatabase.prototype.transaction=function(...args){const tx=original.apply(this,args);if(args[0]==='workbooks'&&args[1]==='readwrite')queueMicrotask(()=>tx.abort());return tx;};
+  try {await assert.rejects(saveWorkbook('Running.xlsx',new Uint8Array([4]).buffer,{...meta,driveRevision:'b'.repeat(64)}));}
+  finally {IDBDatabase.prototype.transaction=original;}
+  assert.deepEqual(await readWorkbook(),before);
+  await saveWorkbook('manual.xlsx',new ArrayBuffer(4));
+  assert.equal((await readWorkbook()).source,'local');assert.equal((await readWorkbook()).driveRevision,undefined);
   delete globalThis.indexedDB;
 });

@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import { zipSync, strToU8 } from 'fflate';
 import { readXlsx } from '../src/readXlsx.js';
+import { RUNNING_DRIVE } from '../src/driveConfig.js';
 import { DEFAULT_LOCATION, PILAR_LOCATION, readWeatherPreferences, saveWeatherPreferences } from '../src/weather.js';
 import { dayWeatherMarkup, weatherPanelMarkup } from '../src/weatherView.js';
 import { sessionDistance, estimateKilometers } from '../src/distance.js';
@@ -63,7 +64,7 @@ test('blue, cyan and green never add distance even when text contains running ki
 });
 
 const tick = () => new Promise(resolve => setImmediate(resolve));
-function appHarness(database, { failSave = false } = {}) {
+function appHarness(database, { failSave = false, failWorkbookSave = false } = {}) {
   const app = { innerHTML: '' };
   const handlers = {};
   const context = vm.createContext({
@@ -75,10 +76,11 @@ function appHarness(database, { failSave = false } = {}) {
     window: { matchMedia: () => ({matches:false}), addEventListener() {} }, navigator:{},
     Intl, Date, Map, Set, Object, Math, ArrayBuffer, File, setInterval() {},
     dateKey, weeklyLoad, trainingKilometers, planSignature, planChanged, isActivity, historicalSessionRecords, parseRunningWorkbook,
+    RUNNING_DRIVE,fetchDriveWorkbook:async()=>{throw Error('Drive offline in test');},
     DEFAULT_LOCATION,PILAR_LOCATION,readWeatherPreferences,saveWeatherPreferences,dayWeatherMarkup,weatherPanelMarkup,
     createWeatherClient: () => ({load:async()=>{throw Error('No network in test');}}),
     readXlsx(buffer) { const n = new Uint8Array(buffer)[0]; if (!n) throw Error('Invalid workbook'); return fixture(n); },
-    saveWorkbook: async (name,buffer) => { database.workbook = {name,buffer}; },
+    saveWorkbook: async (name,buffer,metadata={}) => { if(failWorkbookSave)throw Error('Quota');database.workbook = {name,buffer,...metadata}; },
     readWorkbook: async () => database.workbook,
     deleteWorkbook: async () => { database.workbook = null; },
     readSessionRecords: async () => Object.values(database.records),
@@ -180,4 +182,46 @@ test('real XLSX numeric entities render accented titles, descriptions and sheet 
   assert.equal(workbook.worksheets[0].getRow(1).getCell(1).text,'técnica & movilidad');
   assert.equal(workbook.worksheets[0].getRow(1).getCell(2).text,'cómodo <script>');
   assert.equal(workbook.worksheets[0].getRow(1).getCell(3).text,'&#233; literal');
+});
+
+
+function driveIncoming(version) {
+  return {name:'Running.xlsx',buffer:new Uint8Array([version]).buffer,source:'drive',driveFileId:RUNNING_DRIVE.id,driveRevision:String(version).repeat(64),driveCheckedAt:Date.now()};
+}
+test('Drive sync persists source, revision and bytes together while updated sessions, manual undo and note drafts survive',async()=>{
+ const db={records:{}};const a=appHarness(db);await tick();await tick();
+ a.context.fetchDriveWorkbook=async()=>driveIncoming(1);
+ assert.equal((await a.run('syncDrive()')).ok,true);assert.equal(db.workbook.source,'drive');
+ await a.run(`saveDayRecord(state.weeks[0].days[0],{done:false,note:'Nota guardada'})`);
+ a.run(`state.view='year';state.search='extensivo';state.selectedDay=state.weeks[0].days[0];state.noteDrafts[dateKey(state.selectedDay.date)]='Borrador sin guardar'`);
+ a.context.fetchDriveWorkbook=async()=>driveIncoming(2);
+ assert.equal((await a.run('syncDrive()')).ok,true);
+ assert.equal(a.run('state.view'),'year');assert.equal(a.run('state.search'),'extensivo');
+ assert.match(a.run('state.selectedDay.title'),/8K/);assert.equal(a.run(`state.noteDrafts['2026-09-29']`),'Borrador sin guardar');
+ assert.equal(db.records['2026-09-29'].done,false);assert.equal(db.records['2026-09-29'].note,'Nota guardada');
+ const snapshot=structuredClone(db.workbook),records=structuredClone(db.records);
+ a.context.fetchDriveWorkbook=async()=>driveIncoming(0);
+ assert.equal((await a.run('syncDrive()')).ok,false);assert.deepEqual(db.workbook,snapshot);assert.deepEqual(db.records,records);
+ a.context.fetchDriveWorkbook=async()=>{throw Error('Drive offline');};
+ assert.equal((await a.run('syncDrive()')).ok,false);assert.deepEqual(db.workbook,snapshot);
+ const b=appHarness(db);await tick();await tick();assert.equal(b.run('state.planSource'),'drive');assert.equal(b.run('state.driveRevision'),'2'.repeat(64));
+});
+
+test('Recargar always checks Drive and forces the climate request even with unchanged plan',async()=>{
+ const a=appHarness({records:{}});await tick();await tick();let calls=0;
+ a.context.fetchDriveWorkbook=async()=>{calls++;return driveIncoming(1);};
+ a.run(`weatherClient.load=async(location,options)=>{globalThis.forcedWeather=options.force;return {record:null,source:'network',persisted:true}}`);
+ await a.run('reloadEverything()');await a.run('reloadEverything()');assert.equal(calls,2);assert.equal(a.context.forcedWeather,true);
+ assert.match(a.run('drive.message'),/plan no cambió/);assert.match(a.run('drive.message'),/Clima actualizado/);
+ a.run(`weatherClient.load=async()=>{throw Error('offline')}`);
+ await a.run('reloadEverything()');assert.equal(calls,3);assert.match(a.run('drive.message'),/clima no se pudo actualizar/);
+ assert.equal(a.run('drive.status'),'warning');
+});
+
+test('failed Drive cache write keeps the previous saved workbook and reports that new data is not persistent',async()=>{
+ const db={records:{},workbook:{name:'old 2026.xlsx',buffer:new Uint8Array([1]).buffer}};
+ const a=appHarness(db,{failWorkbookSave:true});await tick();await tick();const old=structuredClone(db.workbook);
+ a.context.fetchDriveWorkbook=async()=>driveIncoming(2);
+ const result=await a.run('syncDrive()');assert.equal(result.ok,true);assert.equal(result.persisted,false);
+ assert.deepEqual(db.workbook,old);assert.match(a.run('drive.message'),/No se pudo guardar la nueva copia/);
 });
