@@ -89,9 +89,13 @@ export function createWeatherClient({ storage = localStorageOrNull(), fetcher = 
       .sort((a, b) => b[1].savedAt - a[1].savedAt).slice(0, 3));
     try { if (!storage) return false; storage.setItem(CACHE_KEY, JSON.stringify(cache)); return true; } catch { return false; }
   }
-  async function load(location, { force = false, onCache = () => {} } = {}) {
+  async function load(location, { force = false, offline = false, onCache = () => {} } = {}) {
     const key = locationKey(location), cached = read(location);
     if (cached) onCache(cached);
+    if (offline) {
+      if (cached) return {record:cached,source:'offline',persisted:Boolean(storage) && cached.cachePersisted !== false};
+      throw new Error('No hay clima guardado para usar sin conexión');
+    }
     if (!force && cacheIsFresh(cached, now())) return { record: cached, source: 'cache', persisted: Boolean(storage) && cached.cachePersisted !== false };
     if (pending.has(key)) return pending.get(key);
     const work = (async () => {

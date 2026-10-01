@@ -1,6 +1,6 @@
 # PaceUp — plan de running
 
-Aplicación web estática para abrir y visualizar la planilla semanal de running.
+Aplicación web para visualizar el plan de running de Drive y usarlo también sin conexión.
 
 ## Ejecutarla localmente
 
@@ -8,7 +8,7 @@ Aplicación web estática para abrir y visualizar la planilla semanal de running
 2. En esta carpeta, ejecutar npm install.
 3. Ejecutar npm run dev.
 4. Abrir la dirección local que muestra Vite, normalmente http://localhost:5173.
-5. Elegir el archivo .xlsx o .xlsm.
+5. Con internet, el plan de Drive se carga automáticamente. Sin conexión, se abre la última copia guardada.
 
 La planilla se lee dentro del navegador. La aplicación no la envía a un servidor.
 
@@ -29,13 +29,17 @@ El archivo original de Running.xlsx está vinculado en src/driveConfig.js. La fu
 
 Recargar consulta nuevamente Drive y Open-Meteo, aunque el clima esté en caché. El Excel se valida antes de reemplazar la copia. El contenido y los datos de sincronización se guardan juntos en IndexedDB; notas y marcas de hecha están en otro almacén y se conservan por fecha. Sin conexión, o ante un archivo inválido, la copia anterior permanece disponible. Los avisos distinguen una actualización correcta de una copia anterior.
 
-Si no hay una copia local, al abrir la app se intenta cargar el plan de Drive. Si existe, se abre primero y se consulta Drive cuando se toca Recargar. Los archivos importados manualmente se muestran hasta la próxima recarga de Drive. Borrar copia elimina el Excel local, no el archivo original ni los registros de sesiones.
+Al abrir con internet se consulta Drive aunque haya una copia anterior; esa copia se usa si falla la actualización. Al abrir sin internet se usa la última copia disponible sin consultar Drive ni el clima. Se muestra la fecha de esa copia y un acceso a la última sesión marcada como hecha. Cuando vuelve la conexión se sincronizan Drive y clima automáticamente, esperando antes cualquier guardado de sesión pendiente.
+
+La importación manual aparece solo en modo sin conexión. Su Excel es temporal: no se guarda y nunca reemplaza la copia de Drive. Al volver a abrir sin conexión se recupera la copia de Drive, con las notas y marcas conservadas por fecha. Una copia manual guardada por versiones anteriores se conserva como respaldo hasta que una sincronización válida de Drive la reemplaza; nunca se vuelve a guardar una importación manual. Borrar copia elimina el plan local, no el archivo original ni los registros de sesiones.
 
 npm run dev incluye el endpoint de Drive mediante un middleware local de Vite. En Netlify se publica la función configurada en netlify.toml. El clima conserva su caché local de una hora; Recargar la omite y solicita datos nuevos. Las respuestas dinámicas de Drive no pasan por la caché del service worker.
 
+El service worker guarda también los archivos JS y CSS del build durante la primera instalación, para que la siguiente apertura pueda ser sin internet. Hace falta abrir la app con conexión una vez y dejar que termine de guardar el plan y la aplicación. Sin conexión, el clima se identifica como pronóstico anterior y las sesiones y notas se pueden seguir guardando localmente.
+
 ## Vistas y navegación
 
-El inicio muestra solamente el entrenamiento de hoy y su clima. El menú del encabezado lleva al calendario (incluye ayer, mañana y la próxima sesión), carga semanal, estadísticas del año, estadísticas generales y ajustes. En ajustes están Drive, la importación y copia local, instalación, ubicación y hora del clima. Recargar queda disponible en todas las vistas.
+El inicio muestra solamente el entrenamiento de hoy y su clima. El menú del encabezado lleva al calendario (incluye ayer, mañana y la próxima sesión), carga semanal, estadísticas del año, estadísticas generales y ajustes. En ajustes están Drive, la copia local, instalación, ubicación y hora del clima; abrir un Excel temporal está disponible solo sin conexión. Recargar queda disponible en todas las vistas cuando hay internet.
 
 Las vistas tienen enlaces propios mediante fragmentos como #inicio, #calendario y #ajustes. Abrir uno, recargar la página o usar Atrás conserva la vista correspondiente. Las notas y actividades hechas siguen guardándose por fecha, con independencia de la vista.
 

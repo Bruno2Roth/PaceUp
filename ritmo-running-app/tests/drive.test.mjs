@@ -58,3 +58,14 @@ test('service worker never returns a cached API response as a fresh Drive sync',
  fetchHandler({request:{method:'GET',url:'https://paceup.test/file.xlsx',cache:'no-store'},respondWith(){responses++;}});
  assert.equal(responses,0);
 });
+
+test('the first service worker install caches the built JS and CSS so the next opening can be offline',async()=>{
+ let install,assets=[],waiting=false;const entries=new Map();
+ const cache={put:async(key,value)=>entries.set(key,value),addAll:async urls=>{assets=urls;}};
+ const context=vm.createContext({URL,Set,self:{location:{origin:'https://paceup.test'},addEventListener(event,fn){if(event==='install')install=fn;},skipWaiting:async()=>{waiting=true;}},
+ caches:{open:async()=>cache},fetch:async(url,options)=>{assert.equal(url,'/');assert.equal(options.cache,'no-store');return new Response('<script src="/assets/app-abc.js"></script><link href="/assets/app-def.css"><script src="https://other.test/skip.js"></script>');}});
+ vm.runInContext(fs.readFileSync(new URL('../public/sw.js',import.meta.url),'utf8'),context);
+ let work;install({waitUntil(promise){work=promise;}});await work;
+ assert.ok(entries.has('/'));assert.ok(assets.includes('https://paceup.test/assets/app-abc.js'));assert.ok(assets.includes('https://paceup.test/assets/app-def.css'));
+ assert.ok(!assets.includes('https://other.test/skip.js'));assert.equal(waiting,true);
+});

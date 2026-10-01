@@ -18,7 +18,7 @@ test('IndexedDB v1 migration, separate stores, atomic patch merging, rollback an
   assert.deepEqual(await readSessionRecords(),[]);
   await updateSessionRecord('2026-09-29',{done:true,planTitle:'6K'});
   await updateSessionRecord('2026-09-29',{note:'Buena sesión'});
-  await saveWorkbook('updated.xlsx',new ArrayBuffer(8));
+  await saveWorkbook('updated.xlsx',new ArrayBuffer(8),{source:'drive'});
   const records=await readSessionRecords();assert.equal(records[0].done,true);assert.equal(records[0].note,'Buena sesión');
   assert.equal((await readWorkbook()).name,'updated.xlsx');
   await deleteWorkbook();assert.equal(await readWorkbook(),undefined);assert.deepEqual(await readSessionRecords(),records);
@@ -54,7 +54,7 @@ test('IndexedDB v1 migration, separate stores, atomic patch merging, rollback an
   try {await assert.rejects(saveWorkbook('Running.xlsx',new Uint8Array([4]).buffer,{...meta,driveRevision:'b'.repeat(64)}));}
   finally {IDBDatabase.prototype.transaction=original;}
   assert.deepEqual(await readWorkbook(),before);
-  await saveWorkbook('manual.xlsx',new ArrayBuffer(4));
-  assert.equal((await readWorkbook()).source,'local');assert.equal((await readWorkbook()).driveRevision,undefined);
+  await assert.rejects(saveWorkbook('manual.xlsx',new ArrayBuffer(4)),/temporales/);
+  assert.deepEqual(await readWorkbook(),before);
   delete globalThis.indexedDB;
 });

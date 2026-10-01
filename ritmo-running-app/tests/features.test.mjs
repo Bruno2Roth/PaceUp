@@ -64,7 +64,7 @@ test('blue, cyan and green never add distance even when text contains running ki
 });
 
 const tick = () => new Promise(resolve => setImmediate(resolve));
-function appHarness(database, { failSave = false, failWorkbookSave = false } = {}) {
+function appHarness(database, { failSave = false, failWorkbookSave = false, offline = true, incoming } = {}) {
   const app = { innerHTML: '' };
   const handlers = {};
   const context = vm.createContext({
@@ -73,14 +73,14 @@ function appHarness(database, { failSave = false, failWorkbookSave = false } = {
       if (selector === '#excel-file' || selector === '[data-forget-file]') return { addEventListener(event,fn) { handlers[selector]=fn; } };
       return null;
     }, querySelectorAll() { return []; } },
-    window: { matchMedia: () => ({matches:false}), addEventListener() {} }, navigator:{},
+    window: { matchMedia: () => ({matches:false}), addEventListener(event,fn) {handlers[event]=fn;} }, navigator:{onLine:!offline},
     Intl, Date, Map, Set, Object, Math, ArrayBuffer, File, setInterval() {},
     dateKey, weeklyLoad, trainingKilometers, planSignature, planChanged, isActivity, historicalSessionRecords, parseRunningWorkbook,
-    RUNNING_DRIVE,fetchDriveWorkbook:async()=>{throw Error('Drive offline in test');},
+    RUNNING_DRIVE,fetchDriveWorkbook:incoming || (async()=>{throw Error('Drive offline in test');}),
     DEFAULT_LOCATION,PILAR_LOCATION,readWeatherPreferences,saveWeatherPreferences,dayWeatherMarkup,weatherPanelMarkup,
     createWeatherClient: () => ({load:async()=>{throw Error('No network in test');}}),
     readXlsx(buffer) { const n = new Uint8Array(buffer)[0]; if (!n) throw Error('Invalid workbook'); return fixture(n); },
-    saveWorkbook: async (name,buffer,metadata={}) => { if(failWorkbookSave)throw Error('Quota');database.workbook = {name,buffer,...metadata}; },
+    saveWorkbook: async (name,buffer,metadata={}) => { if(metadata.source!=='drive')throw Error('Manual file cannot be persisted');if(failWorkbookSave)throw Error('Quota');database.workbook = {name,buffer,...metadata}; },
     readWorkbook: async () => database.workbook,
     deleteWorkbook: async () => { database.workbook = null; },
     readSessionRecords: async () => Object.values(database.records),
@@ -104,7 +104,7 @@ function appHarness(database, { failSave = false, failWorkbookSave = false } = {
 }
 
 test('made session and note survive renamed Excel, moved rows, changed text, reload, removed/reintroduced date, invalid upload and deleting only Excel', async () => {
-  const db = { records:{} };
+  const db = { records:{},workbook:driveIncoming(1) };
   const a = appHarness(db); await tick();
   await a.run(`loadFile(new File([new Uint8Array([1])], 'Running 2026.xlsx'))`);
   await a.run(`saveDayRecord(state.weeks[0].days[0], {done:true, planSignature:planSignature(state.weeks[0].days[0]), planTitle:state.weeks[0].days[0].title})`);
@@ -117,7 +117,7 @@ test('made session and note survive renamed Excel, moved rows, changed text, rel
   assert.match(a.run('modalMarkup(state.weeks[0].days[0])'),/Me sentí bien &lt;script&gt;/);
   // Invalid upload must leave both the saved plan and record intact.
   await a.run(`loadFile(new File([new Uint8Array([0])], 'invalid.xlsx'))`);
-  assert.equal(db.workbook.name,'otro nombre 2026.xlsm'); assert.deepEqual(db.records,snapshot);
+  assert.equal(db.workbook.name,'Running.xlsx');assert.equal(db.workbook.driveRevision,'1'.repeat(64)); assert.deepEqual(db.records,snapshot);
   const b = appHarness(db); await tick();
   assert.equal(b.run('sessionRecord(state.weeks[0].days[0]).done'),true);
   assert.equal(b.run('sessionRecord(state.weeks[0].days[0]).note'),'Me sentí bien <script>');
@@ -155,7 +155,7 @@ test('historical import includes cutoff and older years, excludes future dates, 
 });
 
 test('historical sessions are saved automatically on import and manual undo survives reload and changed Excel', async () => {
-  const db={records:{}};const a=appHarness(db);await tick();
+  const db={records:{},workbook:driveIncoming(1)};const a=appHarness(db);await tick();
   await a.run(`loadFile(new File([new Uint8Array([1])], 'Running 2026.xlsx'))`);
   assert.equal(db.records['2026-09-29'].done,true);
   assert.equal(db.records['2026-09-30'],undefined); // Green rest is not an activity.
@@ -189,7 +189,7 @@ function driveIncoming(version) {
   return {name:'Running.xlsx',buffer:new Uint8Array([version]).buffer,source:'drive',driveFileId:RUNNING_DRIVE.id,driveRevision:String(version).repeat(64),driveCheckedAt:Date.now()};
 }
 test('Drive sync persists source, revision and bytes together while updated sessions, manual undo and note drafts survive',async()=>{
- const db={records:{}};const a=appHarness(db);await tick();await tick();
+ const db={records:{}};const a=appHarness(db,{offline:false});await tick();await tick();
  a.context.fetchDriveWorkbook=async()=>driveIncoming(1);
  assert.equal((await a.run('syncDrive()')).ok,true);assert.equal(db.workbook.source,'drive');
  await a.run(`saveDayRecord(state.weeks[0].days[0],{done:false,note:'Nota guardada'})`);
@@ -208,7 +208,7 @@ test('Drive sync persists source, revision and bytes together while updated sess
 });
 
 test('Recargar always checks Drive and forces the climate request even with unchanged plan',async()=>{
- const a=appHarness({records:{}});await tick();await tick();let calls=0;
+ const a=appHarness({records:{}},{offline:false});await tick();await tick();let calls=0;
  a.context.fetchDriveWorkbook=async()=>{calls++;return driveIncoming(1);};
  a.run(`weatherClient.load=async(location,options)=>{globalThis.forcedWeather=options.force;return {record:null,source:'network',persisted:true}}`);
  await a.run('reloadEverything()');await a.run('reloadEverything()');assert.equal(calls,2);assert.equal(a.context.forcedWeather,true);
@@ -220,8 +220,39 @@ test('Recargar always checks Drive and forces the climate request even with unch
 
 test('failed Drive cache write keeps the previous saved workbook and reports that new data is not persistent',async()=>{
  const db={records:{},workbook:{name:'old 2026.xlsx',buffer:new Uint8Array([1]).buffer}};
- const a=appHarness(db,{failWorkbookSave:true});await tick();await tick();const old=structuredClone(db.workbook);
+ const a=appHarness(db,{failWorkbookSave:true,offline:false});await tick();await tick();const old=structuredClone(db.workbook);
  a.context.fetchDriveWorkbook=async()=>driveIncoming(2);
  const result=await a.run('syncDrive()');assert.equal(result.ok,true);assert.equal(result.persisted,false);
  assert.deepEqual(db.workbook,old);assert.match(a.run('drive.message'),/No se pudo guardar la nueva copia/);
+});
+
+test('opening online fetches Drive instead of restoring a legacy manual file; failed sync safely restores the saved copy',async()=>{
+ const legacy={name:'old manual 2026.xlsx',buffer:new Uint8Array([1]).buffer};
+ const db={records:{},workbook:legacy};let calls=0;
+ const a=appHarness(db,{offline:false,incoming:async()=>{calls++;return driveIncoming(2);}});await tick();await tick();
+ assert.equal(calls,1);assert.equal(a.run('state.planSource'),'drive');assert.equal(db.workbook.driveRevision,'2'.repeat(64));
+ assert.match(a.run('state.weeks[0].days[0].title'),/8K/);
+ a.run(`state.view='settings';render()`);assert.doesNotMatch(a.app.innerHTML,/data-open-file/);
+ const before=structuredClone(db.workbook);
+ const b=appHarness(db,{offline:false});await tick();await tick();
+ assert.equal(b.run('network.usingSaved'),true);assert.deepEqual(db.workbook,before);
+ assert.match(b.app.innerHTML,/Usando la última copia local/);assert.doesNotMatch(b.app.innerHTML,/data-open-file/);
+});
+
+test('offline boot makes no Drive requests and temporary imports never replace the last cache; reconnect waits for note save',async()=>{
+ const db={records:{},workbook:driveIncoming(1)};let calls=0;
+ const a=appHarness(db,{incoming:async()=>{calls++;return driveIncoming(2);}});await tick();await tick();
+ assert.equal(calls,0);assert.equal(a.run('state.planSource'),'drive');assert.match(a.app.innerHTML,/Modo sin conexión/);
+ const cached=structuredClone(db.workbook);
+ const temporary=await a.run(`loadFile(new File([new Uint8Array([2])], 'temporary 2026.xlsx'))`);
+ assert.equal(temporary.loaded,true);assert.equal(temporary.persisted,false);assert.deepEqual(db.workbook,cached);
+ let release;const write=a.context.updateSessionRecord;
+ a.context.updateSessionRecord=async(...args)=>{await new Promise(resolve=>{release=resolve;});return write(...args);};
+ const saving=a.run(`saveDayRecord(state.weeks[0].days[0],{note:'Guardada al reconectar',done:false})`);
+ a.handlers.online();assert.equal(calls,0);assert.equal(a.run('network.reconnectPending'),true);
+ release();await saving;await tick();await tick();
+ assert.equal(calls,1);assert.equal(a.run('state.planSource'),'drive');assert.equal(db.workbook.driveRevision,'2'.repeat(64));
+ assert.equal(db.records['2026-09-29'].note,'Guardada al reconectar');assert.equal(db.records['2026-09-29'].done,false);
+ const result=await a.run(`loadFile(new File([new Uint8Array([1])], 'online manual.xlsx'))`);
+ assert.equal(result.loaded,false);assert.equal(db.workbook.driveRevision,'2'.repeat(64));
 });

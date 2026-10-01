@@ -787,3 +787,10 @@ button:disabled { cursor: not-allowed; }
 .weather-time-control p { flex: 1 1 140px; margin: 0; color: #80907c; font-size: 11px; line-height: 1.7; }
 .weather-time-control .text-button { flex-basis: 100%; text-align: left; padding-left: 0; }
 .weather-controls { grid-template-columns: minmax(0, 1fr); }
+
+.offline-banner { width: min(1360px, calc(100% - 56px)); margin: 18px auto 0; padding: 14px 18px; display: flex; align-items: center; justify-content: space-between; gap: 12px 24px; border: 1px solid #d9e3d0; border-radius: 13px; background: #eaf2e1; color: #3d5d43; }
+.offline-banner strong { font-size: 13px; }
+.offline-banner p { margin: 5px 0 0; font-size: 11px; line-height: 1.7; }
+.offline-banner button { flex: 0 1 auto; white-space: normal; text-align: left; }
+.reload-button:disabled { opacity: .65; }
+@media(max-width:720px) { .offline-banner { width: calc(100% - 30px); align-items: flex-start; flex-direction: column; gap: 5px; } }

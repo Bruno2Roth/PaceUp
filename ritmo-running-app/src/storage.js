@@ -32,9 +32,9 @@ async function transaction(mode, operation, storeName = STORE) {
 }
 
 export function saveWorkbook(name, buffer, metadata = {}) {
-  const source = metadata.source === 'drive' ? 'drive' : 'local';
-  return transaction('readwrite', store => store.put({ name, buffer, savedAt: Date.now(), source,
-    ...(source === 'drive' ? {driveFileId:metadata.driveFileId,driveRevision:metadata.driveRevision,driveCheckedAt:metadata.driveCheckedAt} : {}) }, KEY));
+  if (metadata.source !== 'drive') return Promise.reject(new Error('Los Excel importados manualmente son temporales y no se guardan'));
+  return transaction('readwrite', store => store.put({ name, buffer, savedAt: Date.now(), source:'drive',
+    driveFileId:metadata.driveFileId,driveRevision:metadata.driveRevision,driveCheckedAt:metadata.driveCheckedAt }, KEY));
 }
 
 export function readWorkbook() {

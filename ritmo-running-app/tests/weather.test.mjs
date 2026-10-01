@@ -54,6 +54,15 @@ test('without cache, API errors reject instead of inventing weather', async () =
   assert.throws(()=>normalizeForecast({daily:{time:['2026-09-30']}},DEFAULT_LOCATION,now));
 });
 
+test('explicit offline mode uses cached weather without requests even when expired or forced, and handles no cache',async()=>{
+ const local=storage();await createWeatherClient({storage:local,now:()=>now,fetcher:async()=>response(fixture())}).load(DEFAULT_LOCATION);
+ let calls=0;
+ const client=createWeatherClient({storage:local,now:()=>now+WEATHER_TTL+1,fetcher:async()=>{calls++;throw Error('must not fetch');}});
+ const result=await client.load(DEFAULT_LOCATION,{offline:true,force:true});
+ assert.equal(result.source,'offline');assert.equal(calls,0);assert.equal(result.record.savedAt,now);
+ await assert.rejects(client.load(PILAR_LOCATION,{offline:true}),/No hay clima guardado/);assert.equal(calls,0);
+});
+
 test('null metrics are never converted to zero or favourable conditions', () => {
   const payload=fixture();payload.hourly.precipitation_probability[0]=null;
   const point=weatherForDate(normalizeForecast(payload,DEFAULT_LOCATION,now),'2026-09-30',18);

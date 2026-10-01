@@ -14,6 +14,7 @@ let weatherRequest = 0;
 let lastWeatherAttempt = 0;
 let geolocationRequest = 0;
 const drive = { syncing:false, reloading:false, message:'', status:'idle' };
+const network = {offline:navigator.onLine === false,initializing:true,reconnectPending:false,cachedWorkbook:null,usingSaved:false};
 const VIEWS = [
   {key:'home',hash:'#inicio',label:'Inicio',description:'Tu entrenamiento de hoy'},
   {key:'calendar',hash:'#calendario',label:'Calendario',description:'Ayer, mañana y todos tus meses'},
@@ -80,7 +81,17 @@ window.addEventListener('beforeinstallprompt', event => {
   state.installHelp = '';
   render();
 });
-window.addEventListener('online', () => { if (!weather.loading) refreshWeather(); });
+window.addEventListener('offline', () => {
+  network.offline = true;
+  render();
+  refreshWeather();
+});
+window.addEventListener('online', () => {
+  network.offline = false;
+  network.reconnectPending = true;
+  render();
+  tryReconnect();
+});
 window.addEventListener('appinstalled', () => {
   isInstalled = true;
   installPrompt = null;
@@ -316,7 +327,7 @@ function emptyState() {
   return '<section class="welcome-layout"><div class="welcome-copy"><p class="eyebrow">TU RUNNING, CON PERSPECTIVA</p><h1>Cada día cuenta.<br><span>Tu plan también.</span></h1><p class="welcome-description">Convertí tu Excel en un espacio claro para entrenar: hoy, tus próximas semanas y todo lo que tenés por delante.</p>' +
     '<div class="welcome-features"><span><i>01</i>El entrenamiento de hoy, protagonista</span><span><i>02</i>Todos tus meses, a un toque</span><span><i>03</i>Tu carga y estadísticas en perspectiva</span></div></div>' +
     '<div class="welcome-import"><div class="welcome-preview" aria-hidden="true"><div class="preview-top"><span>ASÍ SE VE TU PLAN</span><span>↗</span></div><div class="preview-title">Tu próximo paso.</div><div class="preview-lines"><i></i><i></i></div><div class="preview-week">' + ['L','M','M','J','V','S','D'].map((d,i)=>'<span class="preview-day preview-day-'+i+'">'+d+'<i></i></span>').join('') + '</div></div>' +
-    '<div class="empty-state"><p class="eyebrow">EMPEZÁ CON TU PLAN</p><h2>Arrastrá tu Excel acá</h2><p class="empty-copy">O elegilo desde tu dispositivo para ver tus entrenamientos.</p><button class="primary-button" type="button" data-open-file>＋ Elegir archivo Excel</button><p class="file-hint">.xlsx o .xlsm · Hasta 25 MB</p><p class="welcome-privacy">Tu archivo se procesa en este navegador.</p></div></div></section>';
+    '<div class="empty-state"><p class="eyebrow">' + (network.offline ? 'SIN CONEXIÓN' : 'CONECTADO A DRIVE') + '</p><h2>' + (network.offline ? 'Todavía no hay un plan guardado' : 'Tu plan llega desde Drive') + '</h2><p class="empty-copy">' + (network.offline ? 'Abrí PaceUp con internet una vez para guardar el plan. También podés abrir un Excel temporal mientras estés sin conexión.' : 'Se consulta Running.xlsx al abrir la app. Si no se pudo cargar, tocá Recargar para reintentar.') + '</p>' + (network.offline ? '<button class="primary-button" type="button" data-open-file>＋ Abrir Excel temporal</button><p class="file-hint">.xlsx o .xlsm · Hasta 25 MB · No se guarda</p>' : '<button class="primary-button" type="button" data-reload>Recargar desde Drive</button>') + '<p class="welcome-privacy">Tus notas y actividades hechas se guardan en este navegador.</p></div></div></section>';
 }
 
 function modalMarkup(day) {
@@ -344,7 +355,7 @@ async function saveDayRecord(day, patch) {
     state.storageMessage = 'Registro guardado. Se conserva al actualizar el Excel.';
   } catch {
     state.storageMessage = 'No se pudo guardar el registro. La marca y la nota guardadas antes se conservaron; volvé a intentarlo.';
-  } finally { state.savingSession = false; render(); }
+  } finally { state.savingSession = false; render();tryReconnect(); }
 }
 
 async function refreshWeather({ force = false } = {}) {
@@ -354,7 +365,7 @@ async function refreshWeather({ force = false } = {}) {
   weather.error = false;
   renderWeather();
   try {
-    const result = await weatherClient.load(weather.location, { force, onCache(record) {
+    const result = await weatherClient.load(weather.location, { force, offline:network.offline, onCache(record) {
       if (request !== weatherRequest) return;
       weather.record = record;
       weather.source = 'cache';
@@ -423,9 +434,24 @@ function bindWeatherEvents() {
 function syncStripMarkup() {
   const checked = state.driveCheckedAt ? 'Última consulta: ' + new Intl.DateTimeFormat('es-AR',{dateStyle:'short',timeStyle:'short'}).format(new Date(state.driveCheckedAt)) : 'Recargar consulta tu plan de Drive y el clima';
   return '<section class="sync-strip sync-' + drive.status + '" aria-label="Conexión con Drive"><div><strong><a href="' + escapeHTML(RUNNING_DRIVE.url) + '" target="_blank" rel="noopener noreferrer">Drive · ' + escapeHTML(RUNNING_DRIVE.name) + ' ↗</a></strong><span>' + escapeHTML(checked) + '</span></div>' +
-    '<p role="status">' + escapeHTML(drive.syncing ? 'Consultando el Excel de Drive…' : drive.message || (state.planSource === 'drive' ? 'Copia de Drive guardada en este navegador.' : state.fileName ? 'Estás viendo un archivo importado. Recargar traerá el plan de Drive.' : 'Tu plan se guarda localmente después de sincronizar.')) + '</p></section>';
+    '<p role="status">' + escapeHTML(drive.syncing ? 'Consultando el Excel de Drive…' : network.offline ? state.planSource === 'local' && state.fileName ? 'Excel temporal: no reemplaza la copia guardada de Drive.' : 'Sin conexión: se usa la última copia disponible.' : drive.message || 'Al abrir con internet se consulta Drive y se actualiza la copia para usarla sin conexión.') + '</p></section>';
+}
+async function restoreCachedPlan() {
+  const saved = network.cachedWorkbook;
+  if (!saved) return false;
+  const result = await loadFile(new File([saved.buffer],saved.name),{restore:true,metadata:saved,preserveView:true});
+  network.usingSaved = Boolean(result?.loaded);
+  return network.usingSaved;
+}
+function tryReconnect() {
+  if (!network.reconnectPending || network.offline || network.initializing || state.loading || state.savingSession || drive.syncing || drive.reloading) return;
+  network.reconnectPending = false;
+  // An offline import is temporary; it cannot become the online plan.
+  if (state.planSource === 'local') Object.assign(state,{fileName:'',weeks:[],months:[],selectedDay:null});
+  reloadEverything();
 }
 async function syncDrive() {
+  if (network.offline) return {ok:false,offline:true,message:'Sin conexión. Se conserva la última copia local.'};
   if (drive.syncing || state.loading || state.savingSession) return {ok:false,message:'Esperá a que termine el guardado actual.'};
   drive.syncing = true;drive.status = 'working';drive.message = '';
   render();
@@ -433,7 +459,7 @@ async function syncDrive() {
     const incoming = await fetchDriveWorkbook();
     let persisted = true;
     if (state.planSource === 'drive' && state.driveRevision === incoming.driveRevision && state.weeks.length) {
-      try { await saveWorkbook(incoming.name, incoming.buffer, incoming); } catch { persisted = false; }
+      try { await saveWorkbook(incoming.name, incoming.buffer, incoming);network.cachedWorkbook={...incoming,savedAt:Date.now()}; } catch { persisted = false; }
       state.driveCheckedAt = incoming.driveCheckedAt;
       drive.message = 'Drive revisado: el plan no cambió.';
     } else {
@@ -443,15 +469,19 @@ async function syncDrive() {
       drive.message = 'Plan actualizado desde Drive. Las notas y las marcas de hecha se conservaron.';
     }
     if (!persisted) drive.message += ' No se pudo guardar la nueva copia local; al volver se abrirá la anterior.';
+    network.usingSaved = false;
     drive.status = persisted ? 'ok' : 'warning';
     return {ok:true,persisted,message:drive.message};
   } catch (error) {
+    if (!state.weeks.length || state.planSource === 'local') await restoreCachedPlan();
+    network.usingSaved = Boolean(state.weeks.length);
     drive.status = 'warning';drive.message = (error?.message || 'No se pudo consultar Drive.') + (state.weeks.length ? ' Se sigue mostrando el plan que ya estaba abierto.' : ' Podés importar el Excel desde tu dispositivo.');
     return {ok:false,message:drive.message};
-  } finally { drive.syncing = false;render(); }
+  } finally { drive.syncing = false;render();tryReconnect(); }
 }
 async function reloadEverything() {
   if (drive.reloading || drive.syncing || state.loading || state.savingSession) return;
+  if (network.offline) { await refreshWeather();return; }
   drive.reloading = true;weather.reloading = true;
   render();
   const results = await Promise.allSettled([syncDrive(),refreshWeather({force:true})]);
@@ -460,10 +490,11 @@ async function reloadEverything() {
   drive.status = plan.ok && plan.persisted && !weather.error ? 'ok' : 'warning';
   drive.reloading = false;weather.reloading = false;
   render();
+  tryReconnect();
 }
 
 function bindEvents() {
-  document.querySelector('[data-reload]')?.addEventListener('click', () => reloadEverything());
+  document.querySelectorAll('[data-reload]').forEach(button=>button.addEventListener('click', () => reloadEverything()));
   bindWeatherEvents();
   document.querySelectorAll('[data-toggle-done]').forEach(button => button.addEventListener('click', () => {
     const day = uniqueDays(state.weeks).find(day => day.id === button.dataset.toggleDone);
@@ -486,6 +517,7 @@ function bindEvents() {
       await deleteWorkbook();
       Object.assign(state, { fileName: '', planSource:'local',driveRevision:'',driveCheckedAt:0, weeks: [], months: [], activeMonth: '', search: '', selectedDay: null, error: '', storageMessage: 'Excel eliminado. Tus sesiones hechas y tus notas se conservan por fecha.' });
       Object.assign(drive,{message:'',status:'idle'});
+      network.cachedWorkbook = null;network.usingSaved = false;
     } catch {
       state.storageMessage = 'No se pudo borrar el Excel guardado. Volvé a intentarlo.';
     } finally { state.loading = false; render(); }
@@ -521,9 +553,9 @@ function bindEvents() {
     render();
   });
   document.querySelectorAll("[data-open-file]").forEach(button =>
-    button.addEventListener("click", () => { if (!state.loading && !state.savingSession && !drive.syncing && !drive.reloading) document.querySelector("#excel-file").click(); })
+    button.addEventListener("click", () => { if (network.offline && !state.loading && !state.savingSession && !drive.syncing && !drive.reloading) document.querySelector("#excel-file").click(); })
   );
-  document.querySelector("#excel-file").addEventListener("change", event => {
+  document.querySelector("#excel-file")?.addEventListener("change", event => {
     const file = event.target.files && event.target.files[0];
     if (file) loadFile(file);
     event.target.value = "";
@@ -534,13 +566,14 @@ function bindEvents() {
     drop.addEventListener("dragenter", event => {
       if (!Array.from(event.dataTransfer?.types || []).includes("Files")) return;
       event.preventDefault();
+      if (!network.offline) return;
       dragDepth += 1;
       drop.classList.add("is-dragging");
     });
     drop.addEventListener("dragover", event => {
       if (!Array.from(event.dataTransfer?.types || []).includes("Files")) return;
       event.preventDefault();
-      if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+      if (event.dataTransfer) event.dataTransfer.dropEffect = network.offline ? "copy" : "none";
     });
     drop.addEventListener("dragleave", event => {
       if (!Array.from(event.dataTransfer?.types || []).includes("Files")) return;
@@ -553,6 +586,7 @@ function bindEvents() {
       event.preventDefault();
       dragDepth = 0;
       drop.classList.remove("is-dragging");
+      if (!network.offline) return;
       const file = event.dataTransfer?.files?.[0];
       if (file) loadFile(file);
     });
@@ -627,12 +661,12 @@ function loadPage() {
 }
 
 function settingsPage() {
-  const busy = state.loading || state.savingSession || drive.syncing || drive.reloading;
+  const busy = network.initializing || state.loading || state.savingSession || drive.syncing || drive.reloading;
   return '<main id="drop-target" class="main-shell settings-shell" data-page="settings">' + pageHeading('Ajustes y Drive','Administrá tu plan, la ubicación del clima y la instalación de PaceUp.') +
-    '<section class="calendar-panel settings-card"><p class="eyebrow">PLAN Y COPIA LOCAL</p><h2>Tu Excel de running</h2>' + syncStripMarkup() +
-    '<p class="settings-copy">' + (state.fileName ? 'Archivo abierto: <strong>' + escapeHTML(state.fileName) + '</strong>.' : 'Todavía no hay un Excel guardado en este navegador.') + ' Recargar revisa Drive y el clima. La copia local permite volver a abrir el plan sin conexión; tus notas y marcas se conservan por fecha.</p>' +
-    '<div class="settings-actions"><button class="outline-button" type="button" data-open-file' + (busy ? ' disabled' : '') + '>' + (state.fileName ? 'Cambiar Excel' : 'Importar Excel') + '</button>' + (state.fileName ? '<button class="outline-button" type="button" data-forget-file' + (busy ? ' disabled' : '') + '>Borrar copia local</button>' : '') + '</div>' +
-    '<p class="settings-hint">Borrar la copia local conserva tus registros y el archivo original de Drive. Una importación manual se reemplaza por el plan de Drive al tocar Recargar.</p></section>' +
+    '<section class="calendar-panel settings-card"><p class="eyebrow">PLAN Y MODO SIN CONEXIÓN</p><h2>Tu plan de Drive</h2>' + syncStripMarkup() +
+    '<p class="settings-copy">' + (state.fileName ? 'Plan abierto: <strong>' + escapeHTML(state.fileName) + '</strong>.' : 'Todavía no hay un plan disponible.') + ' Con internet se consulta Drive al abrir. Sin conexión se usa la última copia guardada, con tus notas y actividades hechas.</p>' +
+    '<div class="settings-actions">' + (network.offline ? '<button class="outline-button" type="button" data-open-file' + (busy ? ' disabled' : '') + '>Abrir Excel temporal</button>' : '') + (network.cachedWorkbook ? '<button class="outline-button" type="button" data-forget-file' + (busy ? ' disabled' : '') + '>Borrar copia local</button>' : '') + '</div>' +
+    '<p class="settings-hint">' + (network.offline ? 'El Excel abierto manualmente no se guarda ni reemplaza la copia de Drive. ' : 'La opción de abrir un Excel está disponible solo sin conexión. ') + 'Borrar la copia conserva tus registros y el archivo original de Drive.</p></section>' +
     '<section class="settings-card calendar-panel"><p class="eyebrow">EN TU DISPOSITIVO</p><h2>Instalar PaceUp</h2><p class="settings-copy">Abrí tu entrenamiento desde la pantalla principal de Android.</p>' +
     (isInstalled ? '<p class="installed-message">✓ Estás usando la app instalada.</p>' : '<button class="outline-button install-button" type="button" data-install>Instalar app</button>') +
     (state.installHelp ? '<p class="settings-copy" role="status">' + escapeHTML(state.installHelp) + '</p>' : '') + '</section>' +
@@ -645,6 +679,14 @@ function feedbackMarkup() {
   if (state.storageMessage && (state.view === 'settings' || /No se pudo|No se pudieron|Registro guardado/.test(state.storageMessage))) messages.push(state.storageMessage);
   if (drive.status === 'warning' && state.view !== 'settings') messages.push(drive.message);
   return messages.length ? '<div class="app-feedback" role="status">' + messages.map(message=>'<p>' + escapeHTML(message) + '</p>').join('') + '</div>' : '';
+}
+
+function offlineBannerMarkup() {
+  if (!network.offline && !network.usingSaved) return '';
+  const cachedAt = network.cachedWorkbook?.driveCheckedAt || network.cachedWorkbook?.savedAt;
+  const stamp = cachedAt ? new Intl.DateTimeFormat('es-AR',{dateStyle:'short',timeStyle:'short'}).format(new Date(cachedAt)) : '';
+  const last = uniqueDays(state.weeks).filter(day=>sessionRecord(day).done && dateKey(day.date)<=dateKey(new Date())).sort((a,b)=>b.date-a.date)[0];
+  return '<section class="offline-banner" role="status"><div><strong>' + (network.offline ? 'Modo sin conexión' : 'Usando la última copia local') + '</strong><p>' + (state.planSource === 'local' && state.fileName ? 'Excel temporal abierto; no se guarda.' : state.weeks.length ? 'Tu plan y tus registros siguen disponibles.' : 'No hay un plan guardado todavía.') + (stamp ? ' Última copia: ' + escapeHTML(stamp) + '.' : '') + '</p></div>' + (last ? '<button class="text-button" type="button" data-day-id="' + escapeHTML(last.id) + '">Última sesión hecha · ' + escapeHTML(formatDate(last.date)) + ' ↗</button>' : '') + '</section>';
 }
 
 function render() {
@@ -665,14 +707,14 @@ function render() {
   }).join("");
   const header = '<header class="topbar"><a class="brand" href="#inicio" data-view="home" aria-label="PaceUp, inicio">' +
     '<span class="brand-symbol"><span></span><span></span><span></span></span><span>PaceUp</span></a>' +
-    '<div class="topbar-right"><button class="outline-button reload-button" type="button" data-reload' + (state.loading || state.savingSession || drive.syncing || drive.reloading ? ' disabled' : '') + '>' + (drive.reloading || drive.syncing ? 'Recargando…' : 'Recargar') + '</button>' + viewNavigation() + '</div></header>';
+    '<div class="topbar-right"><button class="outline-button reload-button" type="button" data-reload' + (network.offline || network.initializing || state.loading || state.savingSession || drive.syncing || drive.reloading ? ' disabled' : '') + '>' + (network.offline ? 'Sin conexión' : drive.reloading || drive.syncing ? 'Recargando…' : 'Recargar') + '</button>' + viewNavigation() + '</div></header>';
 
   let body;
   if (state.view === 'settings') {
     body = settingsPage();
   } else if (!state.weeks.length) {
     body = '<main id="drop-target" class="main-shell empty-shell" data-page="' + state.view + '">' +
-      ((state.loading || drive.syncing) ? loadingMarkup() : emptyState()) +
+      ((state.loading || drive.syncing || network.initializing) ? loadingMarkup() : emptyState()) +
       '</main>';
   } else if (state.view === 'home') {
     body = '<main id="drop-target" class="main-shell home-shell" data-page="home">' + todayMarkup() + '</main>';
@@ -701,14 +743,18 @@ function render() {
   } else if (state.view === 'load') body = loadPage();
   else body = statsPage();
 
-  app.innerHTML = '<div class="app-frame">' + header + feedbackMarkup() + body +
-    '<input id="excel-file" type="file" accept=".xlsx,.xlsm" hidden>' + modalMarkup(state.selectedDay) + "</div>";
+  app.innerHTML = '<div class="app-frame">' + header + offlineBannerMarkup() + feedbackMarkup() + body +
+    (network.offline ? '<input id="excel-file" type="file" accept=".xlsx,.xlsm" hidden>' : '') + modalMarkup(state.selectedDay) + "</div>";
   bindEvents();
   const monthStrip = document.querySelector(".month-strip");
   if (monthStrip && monthStripScroll !== undefined) monthStrip.scrollLeft = monthStripScroll;
 }
 
 async function loadFile(file, { restore = false, metadata = {}, preserveView = false } = {}) {
+  const fromDrive = metadata.source === 'drive';
+  if (!restore && !fromDrive && !network.offline) {
+    state.error = 'Abrir un Excel manualmente está disponible solo en modo sin conexión.';render();return {loaded:false};
+  }
   if ((state.loading || state.savingSession || drive.syncing && metadata.source !== 'drive') && !restore) return {loaded:false};
   const previous = preserveView ? {view:state.view,activeMonth:state.activeMonth,search:state.search,statsYear:state.statsYear,selectedDate:state.selectedDay ? dateKey(state.selectedDay.date) : null} : null;
   let result = {loaded:false};
@@ -730,6 +776,7 @@ async function loadFile(file, { restore = false, metadata = {}, preserveView = f
     const buffer = await file.arrayBuffer();
     const workbook = readXlsx(buffer);
     const parsed = parseRunningWorkbook(workbook, file.name);
+    if (!restore && !fromDrive && !network.offline) throw new Error('Volvió la conexión. Se usará el plan de Drive.');
     if (!parsed.weeks.length) {
       const monthSheets = parsed.diagnostics?.monthSheets || [];
       const missingHeaders = parsed.diagnostics?.sheetsWithoutCalendar || [];
@@ -754,6 +801,7 @@ async function loadFile(file, { restore = false, metadata = {}, preserveView = f
     } catch {
       state.recordsReady = false;
     }
+    if (!restore && !fromDrive && !network.offline) throw new Error('Volvió la conexión. Se usará el plan de Drive.');
     state.selectedDay = null;
     state.fileName = file.name;
     state.planSource = metadata.source === 'drive' ? 'drive' : 'local';
@@ -781,15 +829,16 @@ async function loadFile(file, { restore = false, metadata = {}, preserveView = f
     result = {loaded:true,persisted:restore};
     if (restore) {
       if (state.recordsReady) state.storageMessage = '';
-    } else {
+    } else if (fromDrive) {
       try {
         await saveWorkbook(file.name, buffer, metadata);
+        network.cachedWorkbook = {name:file.name,buffer,...metadata,savedAt:Date.now()};
         result.persisted = true;
-        state.storageMessage = 'Excel guardado en este navegador. Tus marcas y notas se conservan.';
+        state.storageMessage = 'Último plan de Drive guardado para el modo sin conexión. Tus marcas y notas se conservan.';
       } catch {
         state.storageMessage = 'El plan está abierto, pero no se pudo guardar en este navegador. Tendrás que cargarlo de nuevo al volver.';
       }
-    }
+    } else state.storageMessage = 'Excel temporal abierto. No se guarda ni reemplaza la última copia de Drive; tus notas y actividades hechas sí se guardan.';
     if (historicalFailed) state.storageMessage += ' No se pudieron guardar las marcas históricas; volvé a abrir el Excel para reintentarlo.';
     else if (markedHistorical) state.storageMessage += ' ' + markedHistorical + ' actividades hasta el 30/09/2026 quedaron hechas.';
   } catch (error) {
@@ -800,6 +849,7 @@ async function loadFile(file, { restore = false, metadata = {}, preserveView = f
     state.loading = false;
     render();
     if (!preserveView) scrollToMonth(state.activeMonth);
+    tryReconnect();
   }
   return result;
 }
@@ -819,7 +869,8 @@ async function restoreSavedWorkbook() {
     const saved = await readWorkbook();
     if (saved) {
       if (typeof saved.name !== 'string' || !(saved.buffer instanceof ArrayBuffer)) throw new Error('Archivo guardado inválido');
-      await loadFile(new File([saved.buffer], saved.name), { restore: true, metadata:saved });
+      network.cachedWorkbook = saved;
+      if (network.offline) await restoreCachedPlan();
     }
   } catch {
     state.storageMessage = 'No se pudo recuperar el Excel guardado. Podés volver a cargarlo.';
@@ -828,16 +879,22 @@ async function restoreSavedWorkbook() {
     render();
   }
 }
-restoreSavedWorkbook().then(() => {
-  // An existing local copy opens immediately, including offline. First-time
-  // visitors get the linked plan; subsequent explicit reloads check both APIs.
-  if (!state.fileName) syncDrive();
-});
+async function startApp() {
+  try {
+    await restoreSavedWorkbook();
+    if (!network.offline) await syncDrive();
+  } finally {
+    network.initializing = false;
+    render();
+    tryReconnect();
+  }
+}
+startApp();
 refreshWeather();
 
 let lastToday = new Date().toDateString();
 setInterval(() => {
   const current = new Date().toDateString();
   if (current !== lastToday) { lastToday = current; render(); }
-  if (Date.now() - lastWeatherAttempt >= 60 * 60 * 1000 && !weather.loading) refreshWeather();
+  if (!network.offline && Date.now() - lastWeatherAttempt >= 60 * 60 * 1000 && !weather.loading) refreshWeather();
 }, 60000);
