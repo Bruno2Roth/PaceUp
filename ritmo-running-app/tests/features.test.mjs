@@ -145,6 +145,17 @@ test('yesterday and tomorrow cross month/year boundaries and use calendar dates'
   assert.match(html,/2026-12-31/); assert.match(html,/2027-01-02/); assert.match(html,/Ayer/);assert.match(html,/Mañana/);
 });
 
+test('home training view steps across dates and only opens details instead of marking a session done', async () => {
+  const a=appHarness({records:{}});await tick();
+  a.run(`state.homeDate='2026-09-30';state.view='home';render()`);
+  assert.match(a.run('todayMarkup()'),/No hay una sesión cargada para este día/);
+  assert.match(a.run('todayMarkup()'),/Día anterior/);
+  assert.match(a.run('todayMarkup()'),/Día siguiente/);
+  assert.doesNotMatch(a.run('todayMarkup()'),/data-toggle-done|Marcar como hecha/);
+  a.run('changeHomeDay(1)');assert.equal(a.run('state.homeDate'),'2026-10-01');
+  a.run('changeHomeDay(-1)');assert.equal(a.run('state.homeDate'),'2026-09-30');
+});
+
 test('historical import includes cutoff and older years, excludes future dates, rest and both injury colors', () => {
   const make = (date, kind) => ({date:new Date(...date), title:'Actividad', description:'', kilometers:8, trainingColor:kind, status:{kind}});
   const days = [make([2026,8,30],'steady'),make([2026,9,1],'hard'),make([2027,0,1],'controlled'),

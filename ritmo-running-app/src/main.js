@@ -49,6 +49,7 @@ const state = {
   error: "",
   selectedDay: null
 };
+state.homeDate = dateKey(new Date());
 
 const app = document.querySelector("#app");
 function navigateToView(key, {history = true} = {}) {
@@ -62,6 +63,13 @@ function navigateToView(key, {history = true} = {}) {
   render();
   window.scrollTo?.({top:0,behavior:'auto'});
   document.querySelector('main h1, main h2')?.focus({preventScroll:true});
+}
+function changeHomeDay(offset) {
+  const date = new Date(state.homeDate + 'T12:00:00');
+  date.setDate(date.getDate() + offset);
+  state.homeDate = dateKey(date);
+  render();
+  document.querySelector('[data-home-step="' + offset + '"]')?.focus({preventScroll:true});
 }
 window.addEventListener('popstate',()=>navigateToView(viewFromHash(),{history:false}));
 window.addEventListener('hashchange',()=>navigateToView(viewFromHash(),{history:false}));
@@ -204,17 +212,18 @@ function nextSessionMarkup() {
 }
 
 function todayMarkup() {
-  const today = new Date();
+  const today = new Date(state.homeDate + 'T12:00:00');
   const days = uniqueDays(state.weeks);
   const day = days.find(item => dateKey(item.date) === dateKey(today));
   const date = formatDate(today, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-  return '<div class="today-weather-grid"><section class="today-focus ' + (day ? toneClass(day) : '') + '" aria-labelledby="today-title"><div class="today-focus-heading"><p class="eyebrow">TU ENTRENAMIENTO DE HOY</p><span>' + escapeHTML(date) + '</span></div>' +
+  const isToday = dateKey(today) === dateKey(new Date());
+  return '<div class="today-weather-grid"><section class="today-focus ' + (day ? toneClass(day) : '') + '" aria-labelledby="today-title"><div class="today-focus-heading"><p class="eyebrow">' + (isToday ? 'TU ENTRENAMIENTO DE HOY' : 'ENTRENAMIENTO DEL DÍA') + '</p><div class="home-day-controls"><button class="day-step-button" type="button" data-home-step="-1" aria-label="Día anterior">‹</button><time class="home-day-date" aria-live="polite">' + escapeHTML(date) + '</time><button class="day-step-button" type="button" data-home-step="1" aria-label="Día siguiente">›</button></div></div>' +
     (day ? '<div class="nearby-status"><span class="day-status">' + escapeHTML(day.status.label) + '</span>' + doneBadge(day) + '</div><h1 id="today-title" tabindex="-1">' + cleanText(day.title) + '</h1>' +
       (day.description ? '<p class="today-details">' + cleanText(day.description) + '</p>' : '') +
       planChangeMarkup(day) +
       '<div class="today-focus-bottom"><strong>' + (["lesion", "rest"].includes(day.trainingColor) ? 'Sin kilómetros de running' : countedKm(day) > 0 ? formatKm(day.kilometers) + ' en el plan' : 'Sin distancia contabilizada') +
-      '</strong><div class="nearby-actions">' + doneButton(day) + '<button class="primary-button" type="button" data-day-id="' + escapeHTML(day.id) + '">Ver detalle y nota ↗</button></div></div>' :
-      '<h1 id="today-title" tabindex="-1">Hoy no tiene una sesión cargada</h1><p class="today-details">El Excel no incluye un entrenamiento para esta fecha.</p><a class="home-calendar-link" href="#calendario" data-view="calendar">Ver los días disponibles en el calendario ↗</a>') + '</section>' + weatherPanelMarkup(weather, dateKey(today), {title:'Clima para hoy', controls:false}) + '</div>';
+      '</strong><div class="nearby-actions"><button class="primary-button" type="button" data-day-id="' + escapeHTML(day.id) + '">Ver detalle y nota ↗</button></div></div><p class="today-swipe-hint">Deslizá a los costados para cambiar de día</p>' :
+      '<h1 id="today-title" tabindex="-1">No hay una sesión cargada para este día</h1><p class="today-details">El Excel no incluye un entrenamiento para esta fecha.</p><a class="home-calendar-link" href="#calendario" data-view="calendar">Ver los días disponibles en el calendario ↗</a><p class="today-swipe-hint">Deslizá a los costados para cambiar de día</p>') + '</section>' + weatherPanelMarkup(weather, dateKey(today), {title:isToday ? 'Clima para hoy' : 'Clima para este día', controls:false}) + '</div>';
 }
 
 function weeklyLoadMarkup(days, scope = "") {
@@ -505,6 +514,22 @@ async function reloadEverything() {
 function bindEvents() {
   document.querySelectorAll('[data-reload]').forEach(button=>button.addEventListener('click', () => reloadEverything()));
   bindWeatherEvents();
+  document.querySelectorAll('[data-home-step]').forEach(button => button.addEventListener('click', () => changeHomeDay(Number(button.dataset.homeStep))));
+  const home = document.querySelector('.home-shell');
+  if (home) {
+    let swipeStart = null;
+    home.addEventListener('pointerdown', event => {
+      if (event.pointerType === 'mouse' || event.target.closest('button,a,input,select,textarea,summary,[role="button"]')) return;
+      swipeStart = {x:event.clientX,y:event.clientY,id:event.pointerId};
+    }, {passive:true});
+    home.addEventListener('pointerup', event => {
+      if (!swipeStart || swipeStart.id !== event.pointerId) return;
+      const dx = event.clientX - swipeStart.x, dy = event.clientY - swipeStart.y;
+      swipeStart = null;
+      if (Math.abs(dx) >= 48 && Math.abs(dx) > Math.abs(dy) * 1.25) changeHomeDay(dx > 0 ? -1 : 1);
+    }, {passive:true});
+    home.addEventListener('pointercancel', () => { swipeStart = null; }, {passive:true});
+  }
   document.querySelectorAll('[data-toggle-done]').forEach(button => button.addEventListener('click', () => {
     const day = uniqueDays(state.weeks).find(day => day.id === button.dataset.toggleDone);
     if (!day) return;
