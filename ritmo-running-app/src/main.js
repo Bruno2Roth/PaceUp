@@ -181,12 +181,6 @@ function doneBadge(day) {
   return sessionRecord(day).done ? '<span class="done-badge">✓ Hecha</span>' : '';
 }
 
-function doneButton(day) {
-  if (!isActivity(day) && !sessionRecord(day).done) return '';
-  const done = Boolean(sessionRecord(day).done);
-  return '<button class="completion-button' + (done ? ' is-done' : '') + '" type="button" data-toggle-done="' + escapeHTML(day.id) + '" aria-pressed="' + done + '"' + (!state.recordsReady || state.savingSession || state.loading || drive.syncing || drive.reloading ? ' disabled' : '') + '>' + (done ? '✓ Hecha · desmarcar' : 'Marcar como hecha') + '</button>';
-}
-
 function planChangeMarkup(day) {
   const record = sessionRecord(day);
   if (!planChanged(day, record)) return '';
@@ -202,7 +196,7 @@ function nearbyMarkup(today, days) {
       (day ? '<div class="nearby-status"><span class="day-status">' + escapeHTML(day.status.label) + '</span>' + doneBadge(day) + '</div><h2>' + cleanText(day.title) + '</h2>' +
         '<p class="nearby-distance">' + (countedKm(day) > 0 ? formatKm(countedKm(day)) + ' en el plan' : ['rest', 'lesion'].includes(day.trainingColor) ? 'Sin kilómetros de running' : 'Sin distancia contabilizada') + '</p>' +
         (planChanged(day, sessionRecord(day)) ? '<p class="record-warning">El plan cambió; tu registro se conserva.</p>' : '') +
-        dayWeatherMarkup(weather, dateKey(date)) + '<div class="nearby-actions"><button class="text-button" type="button" data-day-id="' + escapeHTML(day.id) + '">Ver detalle ↗</button>' + doneButton(day) + '</div>' : '<h2>Sin sesión cargada</h2><p class="stats-note">El Excel no incluye esta fecha.</p>') + '</article>';
+        dayWeatherMarkup(weather, dateKey(date)) + '<div class="nearby-actions"><button class="text-button" type="button" data-day-id="' + escapeHTML(day.id) + '">Ver detalle ↗</button></div>' : '<h2>Sin sesión cargada</h2><p class="stats-note">El Excel no incluye esta fecha.</p>') + '</article>';
   }).join('') + '</section>';
 }
 
@@ -360,7 +354,7 @@ function modalMarkup(day) {
     (['steady','controlled','hard'].includes(day.trainingColor) && day.kilometers !== null ? '<div class="modal-distance">' + formatKm(day.kilometers) + ' en el plan</div>' : '') +
     (day.description ? '<div class="modal-description">' + cleanText(day.description) + '</div>' : '<p class="modal-description muted">La planilla no tiene una descripción para este día.</p>') +
     (distance?.warning ? '<p class="record-warning">' + escapeHTML(distance.warning) + '</p>' : distance?.parts?.length ? '<details class="distance-breakdown"><summary>Cómo se calculó la distancia</summary><p>' + escapeHTML(distance.source) + '</p><ul>' + distance.parts.map(part => '<li>' + escapeHTML(part.label) + ' = ' + formatKm(part.kilometers) + '</li>').join('') + '</ul><p>El título y la descripción no se suman dos veces.</p></details>' : '') +
-    planChangeMarkup(day) + '<details class="modal-weather"><summary>Ver clima de este día</summary>' + weatherPanelMarkup(weather, dateKey(day.date)) + '</details><div class="session-controls">' + doneButton(day) + '</div><label class="session-note-label" for="session-note">Tu nota del entrenamiento</label><textarea id="session-note" rows="3" maxlength="3000" placeholder="Sensaciones, cambios o cómo salió…"' + (!state.recordsReady || state.savingSession || drive.syncing || drive.reloading ? ' disabled' : '') + '>' + escapeHTML(note) + '</textarea><button class="outline-button" type="button" data-save-note="' + escapeHTML(day.id) + '"' + (!state.recordsReady || state.savingSession || drive.syncing || drive.reloading ? ' disabled' : '') + '>Guardar nota</button><p class="modal-footnote">Las marcas de hecha y las notas se guardan en este navegador por fecha y se conservan al actualizar el Excel.</p></section></div>';
+    planChangeMarkup(day) + '<details class="modal-weather"><summary>Ver clima de este día</summary>' + weatherPanelMarkup(weather, dateKey(day.date)) + '</details><label class="session-note-label" for="session-note">Tu nota del entrenamiento</label><textarea id="session-note" rows="3" maxlength="3000" placeholder="Sensaciones, cambios o cómo salió…"' + (!state.recordsReady || state.savingSession || drive.syncing || drive.reloading ? ' disabled' : '') + '>' + escapeHTML(note) + '</textarea><button class="outline-button" type="button" data-save-note="' + escapeHTML(day.id) + '"' + (!state.recordsReady || state.savingSession || drive.syncing || drive.reloading ? ' disabled' : '') + '>Guardar nota</button><p class="modal-footnote">Tus notas se guardan por fecha y se conservan al actualizar el Excel.</p></section></div>';
 }
 
 async function saveDayRecord(day, patch) {
@@ -530,12 +524,6 @@ function bindEvents() {
     }, {passive:true});
     home.addEventListener('pointercancel', () => { swipeStart = null; }, {passive:true});
   }
-  document.querySelectorAll('[data-toggle-done]').forEach(button => button.addEventListener('click', () => {
-    const day = uniqueDays(state.weeks).find(day => day.id === button.dataset.toggleDone);
-    if (!day) return;
-    const done = !sessionRecord(day).done;
-    saveDayRecord(day, { done, ...(done ? { planSignature: planSignature(day), planTitle: day.title, planDescription: day.description } : {}) });
-  }));
   document.querySelector('#session-note')?.addEventListener('input', event => {
     if (state.selectedDay) state.noteDrafts[dateKey(state.selectedDay.date)] = event.target.value;
   });

@@ -178,7 +178,8 @@ test('historical sessions are saved automatically on import and manual undo surv
   assert.equal(db.records['2026-09-29'].note,'No la hice');
   const day={id:'future',date:new Date(2026,9,1),title:'8K',description:'',kilometers:8,trainingColor:'steady',status:{kind:'steady',label:'Amarillo'}};
   b.context.futureDay=day;
-  assert.match(b.run('doneButton(futureDay)'),/Marcar como hecha/);
+  assert.doesNotMatch(b.run('todayMarkup()'),/Marcar como hecha|data-toggle-done/);
+  assert.doesNotMatch(b.run('modalMarkup(futureDay)'),/Marcar como hecha|data-toggle-done/);
 });
 
 test('real XLSX numeric entities render accented titles, descriptions and sheet names without double decoding', () => {
