@@ -135,12 +135,17 @@ function trainingReferencesMarkup(day, compact = false) {
   const refs = day.trainingRefs || [];
   if (!refs.length) return '';
   return '<div class="training-references ' + (compact ? 'training-references-compact' : '') + '">' +
-    refs.map(item => '<div class="training-reference ' + (item.kind === 'fuerza' ? 'training-reference-strength' : '') + '">' +
-      '<div class="training-reference-heading"><span class="training-reference-kind">' + (item.kind === 'fuerza' ? 'FUERZA' : 'ENTRENAMIENTO') + '</span>' +
-      '<strong>' + escapeHTML(item.missing ? 'Entrenamiento no encontrado' : item.name) + '</strong><code>#' + escapeHTML(item.id) + '</code></div>' +
-      (!compact && !item.missing && item.detail && !item.detail.startsWith('Definir distancia') ? '<p>' + escapeHTML(item.detail) + '</p>' : '') +
-      (!compact && !item.missing && item.category ? '<small>' + escapeHTML(item.category) + '</small>' : '') +
-      '</div>').join('') + '</div>';
+    refs.map(item => {
+      const parts = String(item.detail || '').split(/\\s*\\|\\s*/);
+      const exercises = (parts.length > 1 ? parts.slice(1).join(' | ') : parts[0]).split(/\\s*;\\s*/).filter(Boolean);
+      const duration = parts.length > 1 ? parts[0] : '';
+      return '<section class="training-reference training-reference-strength" aria-label="Ejercicios de fuerza">' +
+        '<div class="training-reference-heading"><span class="training-reference-kind">FUERZA EN CASA</span><strong>' + escapeHTML(item.name) + '</strong><code>#' + escapeHTML(item.id) + '</code></div>' +
+        (compact ? '<small>' + escapeHTML(duration || 'Ver ejercicios en el detalle') + '</small>' :
+          (duration ? '<p class="strength-duration">' + escapeHTML(duration) + '</p>' : '') +
+          (exercises.length ? '<ul class="strength-exercises">' + exercises.map(exercise => '<li>' + escapeHTML(exercise) + '</li>').join('') + '</ul>' : '')) +
+        '</section>';
+    }).join('') + '</div>';
 }
 
 function formatKm(value) {
