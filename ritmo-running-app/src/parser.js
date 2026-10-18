@@ -174,13 +174,17 @@ function readCatalog(workbook) {
 
 export function parseTrainingReferences(description, catalog = {}) {
   const raw = String(description || "");
-  const refs = [...raw.matchAll(/\[(ENTRENO|FUERZA):(\d{3})\]/g)].map((match) => {
-    const item = catalog[match[2]];
-    return item ? { ...item, kind: match[1] === "FUERZA" ? "fuerza" : "running" } : { id: match[2], kind: match[1] === "FUERZA" ? "fuerza" : "running", missing: true };
+  // Solo la fuerza usa referencias. El running conserva su texto original.
+  const ids = [...raw.matchAll(/Fuerza\s+[AB]\s*\(#(\d{3})\)/gi)].map(match => match[1]);
+  for (const match of raw.matchAll(/\[FUERZA:(\d{3})\]/g)) ids.push(match[1]);
+  const refs = [...new Set(ids)].map(id => {
+    const item = catalog[id];
+    return item ? { ...item, kind: "fuerza" } : { id, kind: "fuerza", missing: true };
   });
   const visible = raw
-    .replace(/\[(?:ENTRENO|FUERZA):\d{3}\]/g, "")
     .replace(/\[ENTRENAMIENTO:FUERZA[^\]]*\][\s\S]*?\[\/ENTRENAMIENTO\]/g, "")
+    .replace(/\s*\[(?:ENTRENO|FUERZA):\d{3}\]/g, "")
+    .replace(/\n?Fuerza\s+[AB]\s*\(#\d{3}\)\s*[—-]\s*\d+\s*min\s*\n[^\n]*/gi, "")
     .replace(/\n{3,}/g, "\n\n").trim();
   return { visible, refs };
 }
