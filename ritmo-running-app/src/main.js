@@ -136,8 +136,8 @@ function trainingReferencesMarkup(day, compact = false) {
   if (!refs.length) return '';
   return '<div class="training-references ' + (compact ? 'training-references-compact' : '') + '">' +
     refs.map(item => {
-      const parts = String(item.detail || '').split(/\\s*\\|\\s*/);
-      const exercises = (parts.length > 1 ? parts.slice(1).join(' | ') : parts[0]).split(/\\s*;\\s*/).filter(Boolean);
+      const parts = String(item.detail || '').split(/\s*\|\s*/);
+      const exercises = (parts.length > 1 ? parts.slice(1).join(' | ') : parts[0]).split(/\s*;\s*/).filter(Boolean);
       const duration = parts.length > 1 ? parts[0] : '';
       return '<section class="training-reference training-reference-strength" aria-label="Ejercicios de fuerza">' +
         '<div class="training-reference-heading"><span class="training-reference-kind">FUERZA EN CASA</span><strong>' + escapeHTML(item.name) + '</strong><code>#' + escapeHTML(item.id) + '</code></div>' +
