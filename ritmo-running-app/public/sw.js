@@ -1,4 +1,4 @@
-const CACHE = 'paceup-shell-v9';
+const CACHE = 'paceup-shell-v10';
 async function precacheShell() {
   const cache = await caches.open(CACHE);
   const response = await fetch('/',{cache:'no-store'});
