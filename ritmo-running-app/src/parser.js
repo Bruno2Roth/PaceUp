@@ -178,14 +178,15 @@ export function parseTrainingReferences(description, catalog = {}) {
   // cuando hay una rutina real que pueda mostrarse completa.
   const refs = [];
   const ids = new Set();
-  for (const match of raw.matchAll(/Fuerza\s+[AB]\s*\(#(\d{3})\)|\[FUERZA:(\d{3})\]/gi)) {
-    const id = match[1] || match[2];
+  for (const match of raw.matchAll(/Fuerza\s*#(\d{3})|Fuerza\s+[AB]\s*\(#(\d{3})\)|\[FUERZA:(\d{3})\]/gi)) {
+    const id = match[1] || match[2] || match[3];
     if (ids.has(id)) continue;
     ids.add(id);
     if (catalog[id]) refs.push({ ...catalog[id], kind: "fuerza" });
   }
   let visible = raw.replace(/\[ENTRENO:\d{3}\]/g, "").trim();
   for (const ref of refs) {
+    visible = visible.replace(new RegExp("Fuerza\\s*#" + ref.id + "(?!\\d)", "gi"), "");
     const label = new RegExp("Fuerza\\s+[AB]\\s*\\(#" + ref.id + "\\)\\s*[—–-]?\\s*\\d*\\s*min[^\\n]*", "gi");
     visible = visible.replace(label, "");
     visible = visible.replace(new RegExp("\\[FUERZA:" + ref.id + "\\]", "g"), "");
