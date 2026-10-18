@@ -269,23 +269,14 @@ test('offline boot makes no Drive requests and temporary imports never replace t
  assert.equal(result.loaded,false);assert.equal(db.workbook.driveRevision,'2'.repeat(64));
 });
 
-test('referencias del Excel: running y fuerza se resuelven por ID', () => {
-  const catalog = {
-    '003': { id: '003', name: 'Regenerativo Medio', category: 'RECUPERACIÓN', detail: '' },
-    '105': { id: '105', name: 'Fuerza A', category: 'FUERZA', detail: '3x15 gemelos' }
-  };
-  const value = "5K regenerativos\n[ENTRENO:003]\n[FUERZA:105]";
-  const parsed = parseTrainingReferences(value, catalog);
-  assert.equal(parsed.visible, '5K regenerativos');
-  assert.deepEqual(parsed.refs.map(x => [x.id, x.name, x.kind]), [
-    ['003', 'Regenerativo Medio', 'running'],
-    ['105', 'Fuerza A', 'fuerza']
-  ]);
+test('el running mantiene la descripcion y solo la fuerza se resuelve por ID', () => {
+  const catalog = { '105': {id:'105', name:'Fuerza A', category:'FUERZA', detail:'Gemelos y sentadillas'} };
+  const data = parseTrainingReferences("5K regenerativos\nFuerza A (#105) — 15 min\n2x12 sentadillas", catalog);
+  assert.equal(data.visible, '5K regenerativos');
+  assert.deepEqual(data.refs.map(x => [x.id, x.name, x.kind]), [['105','Fuerza A','fuerza']]);
 });
-test('descripciones de fuerza no duplican lo que ve el usuario', () => {
-  const data = parseTrainingReferences("6K suaves\n[ENTRENAMIENTO:FUERZA|CODIGO:FUERZA_B|DURACION:15MIN]\n2x15 puente\n[/ENTRENAMIENTO]\n[FUERZA:106]", {
-    '106': {id:'106',name:'Fuerza B',category:'FUERZA',detail:'Puente y sóleo'}
-  });
-  assert.equal(data.visible, '6K suaves');
-  assert.equal(data.refs[0].name, 'Fuerza B');
+test('el texto original del running no requiere numeracion', () => {
+  const data = parseTrainingReferences('2K EC + 5x1000m + 2K VC');
+  assert.equal(data.visible, '2K EC + 5x1000m + 2K VC');
+  assert.equal(data.refs.length, 0);
 });
