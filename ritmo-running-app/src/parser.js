@@ -158,7 +158,7 @@ function classify(title, description, fillColor) {
 }
 
 function readCatalog(workbook) {
-  const sheet = workbook.worksheets.find(item => normalize(item.name) === "ENTRENAMIENTOS");
+  const sheet = workbook.worksheets.find(item => ["FUERZA", "FUERZA EN CASA", "ENTRENAMIENTOS"].includes(normalize(item.name)));
   const catalog = {};
   if (!sheet) return catalog;
   for (let row = 2; row <= sheet.rowCount; row += 1) {
@@ -174,19 +174,35 @@ function readCatalog(workbook) {
 
 export function parseTrainingReferences(description, catalog = {}) {
   const raw = String(description || "");
-  // Solo la fuerza usa referencias. El running conserva su texto original.
-  const ids = [...raw.matchAll(/Fuerza\s+[AB]\s*\(#(\d{3})\)/gi)].map(match => match[1]);
-  for (const match of raw.matchAll(/\[FUERZA:(\d{3})\]/g)) ids.push(match[1]);
-  const refs = [...new Set(ids)].map(id => {
-    const item = catalog[id];
-    return item ? { ...item, kind: "fuerza" } : { id, kind: "fuerza", missing: true };
-  });
-  const visible = raw
-    .replace(/\[ENTRENAMIENTO:FUERZA[^\]]*\][\s\S]*?\[\/ENTRENAMIENTO\]/g, "")
-    .replace(/\s*\[(?:ENTRENO|FUERZA):\d{3}\]/g, "")
-    .replace(/\n?Fuerza\s+[AB]\s*\(#\d{3}\)\s*[—-]\s*\d+\s*min\s*\n[^\n]*/gi, "")
-    .replace(/\n{3,}/g, "\n\n").trim();
-  return { visible, refs };
+  // Las descripciones de running se conservan intactas. Solo se separa la fuerza
+  // cuando hay una rutina real que pueda mostrarse completa.
+  const refs = [];
+  const ids = new Set();
+  for (const match of raw.matchAll(/Fuerza\s+[AB]\s*\(#(\d{3})\)|\[FUERZA:(\d{3})\]/gi)) {
+    const id = match[1] || match[2];
+    if (ids.has(id)) continue;
+    ids.add(id);
+    if (catalog[id]) refs.push({ ...catalog[id], kind: "fuerza" });
+  }
+  let visible = raw.replace(/\[ENTRENO:\d{3}\]/g, "").trim();
+  for (const ref of refs) {
+    const label = new RegExp("Fuerza\\s+[AB]\\s*\\(#" + ref.id + "\\)\\s*[—–-]?\\s*\\d*\\s*min[^\\n]*", "gi");
+    visible = visible.replace(label, "");
+    visible = visible.replace(new RegExp("\\[FUERZA:" + ref.id + "\\]", "g"), "");
+  }
+  // La línea de ejercicios repetida bajo «Fuerza A/B» pasa a la tarjeta únicamente
+  // si encontramos esa rutina en el catálogo; sin catálogo no se borra información.
+  if (refs.length && /Fuerza\s+[AB]\s*\(#\d{3}\)/i.test(raw)) {
+    const lines = raw.split("\n");
+    const removed = new Set();
+    for (let i = 0; i < lines.length; i++) {
+      const match = lines[i].match(/Fuerza\s+[AB]\s*\(#(\d{3})\)/i);
+      if (!match || !refs.some(ref => ref.id === match[1])) continue;
+      if (lines[i + 1] && /(?:\d+\s*[x×]\s*\d+|plancha|puente de gl[uú]teos|gemelos|sentadillas)/i.test(lines[i + 1])) removed.add(lines[i + 1]);
+    }
+    visible = visible.split("\n").filter(line => !removed.has(line)).join("\n");
+  }
+  return { visible: visible.replace(/\n{3,}/g, "\n\n").trim(), refs };
 }
 
 function combineNotes(first, second) {
