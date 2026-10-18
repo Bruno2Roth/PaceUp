@@ -43,6 +43,7 @@ const state = {
   driveCheckedAt: 0,
   weeks: [],
   months: [],
+  catalog: {},
   activeMonth: "",
   search: "",
   loading: false,
@@ -125,6 +126,21 @@ function escapeHTML(value) {
 
 function cleanText(value) {
   return escapeHTML(value).replace(/\n/g, "<br>");
+}
+
+function trainingDescription(day) {
+  return day.visibleDescription ?? day.description ?? '';
+}
+function trainingReferencesMarkup(day, compact = false) {
+  const refs = day.trainingRefs || [];
+  if (!refs.length) return '';
+  return '<div class="training-references ' + (compact ? 'training-references-compact' : '') + '">' +
+    refs.map(item => '<div class="training-reference ' + (item.kind === 'fuerza' ? 'training-reference-strength' : '') + '">' +
+      '<div class="training-reference-heading"><span class="training-reference-kind">' + (item.kind === 'fuerza' ? 'FUERZA' : 'ENTRENAMIENTO') + '</span>' +
+      '<strong>' + escapeHTML(item.missing ? 'Entrenamiento no encontrado' : item.name) + '</strong><code>#' + escapeHTML(item.id) + '</code></div>' +
+      (!compact && !item.missing && item.detail && !item.detail.startsWith('Definir distancia') ? '<p>' + escapeHTML(item.detail) + '</p>' : '') +
+      (!compact && !item.missing && item.category ? '<small>' + escapeHTML(item.category) + '</small>' : '') +
+      '</div>').join('') + '</div>';
 }
 
 function formatKm(value) {
@@ -213,7 +229,7 @@ function todayMarkup() {
   const isToday = dateKey(today) === dateKey(new Date());
   return '<div class="today-weather-grid"><section class="today-focus ' + (day ? toneClass(day) : '') + '" aria-labelledby="today-title"><div class="today-focus-heading"><p class="eyebrow">' + (isToday ? 'TU ENTRENAMIENTO DE HOY' : 'ENTRENAMIENTO DEL DÍA') + '</p><div class="home-day-controls"><button class="day-step-button" type="button" data-home-step="-1" aria-label="Día anterior">‹</button><time class="home-day-date" aria-live="polite">' + escapeHTML(date) + '</time><button class="day-step-button" type="button" data-home-step="1" aria-label="Día siguiente">›</button></div></div>' +
     (day ? '<div class="nearby-status"><span class="day-status">' + escapeHTML(day.status.label) + '</span>' + doneBadge(day) + '</div><h1 id="today-title" tabindex="-1">' + cleanText(day.title) + '</h1>' +
-      (day.description ? '<p class="today-details">' + cleanText(day.description) + '</p>' : '') +
+      (trainingDescription(day) ? '<p class="today-details">' + cleanText(trainingDescription(day)) + '</p>' : '') + trainingReferencesMarkup(day) +
       planChangeMarkup(day) +
       '<div class="today-focus-bottom"><strong>' + (["lesion", "rest"].includes(day.trainingColor) ? 'Sin kilómetros de running' : countedKm(day) > 0 ? formatKm(day.kilometers) + ' en el plan' : 'Sin distancia contabilizada') +
       '</strong><div class="nearby-actions"><button class="primary-button" type="button" data-day-id="' + escapeHTML(day.id) + '">Ver detalle y nota ↗</button></div></div><p class="today-swipe-hint">Deslizá a los costados para cambiar de día</p>' :
@@ -295,14 +311,14 @@ function toneClass(day) {
 function dayCard(day) {
   const today = new Date();
   const isToday = day.date.toDateString() === today.toDateString();
-  const detail = day.description ? '<p class="day-description">' + cleanText(day.description) + "</p>" : "";
+  const detail = trainingDescription(day) ? '<p class="day-description">' + cleanText(trainingDescription(day)) + "</p>" : "";
   const km = ["steady", "controlled", "hard"].includes(day.trainingColor) && day.kilometers !== null ? '<span class="day-km">' + formatKm(day.kilometers) + "</span>" : "";
   return '<button class="day-card ' + toneClass(day) + '" type="button" data-day-id="' + escapeHTML(day.id) + '">' +
     '<div class="day-card-top"><span class="day-date">' + formatDate(day.date) + "</span>" +
     (isToday ? '<span class="today-label">Hoy</span>' : "") + "</div>" +
     '<span class="day-status">' + escapeHTML(day.status.label) + "</span>" + doneBadge(day) +
     '<strong class="day-title">' + cleanText(day.title) + "</strong>" +
-    detail + dayWeatherMarkup(weather, dateKey(day.date)) + (planChanged(day, sessionRecord(day)) ? '<span class="day-change">Plan actualizado · registro conservado</span>' : '') + (day.distance?.warning ? '<span class="day-change">Revisar distancia</span>' : '') + '<span class="day-card-bottom">' + km + '<span class="open-hint">Ver detalle <span aria-hidden="true">↗</span></span></span>' +
+    detail + trainingReferencesMarkup(day, true) + dayWeatherMarkup(weather, dateKey(day.date)) + (planChanged(day, sessionRecord(day)) ? '<span class="day-change">Plan actualizado · registro conservado</span>' : '') + (day.distance?.warning ? '<span class="day-change">Revisar distancia</span>' : '') + '<span class="day-card-bottom">' + km + '<span class="open-hint">Ver detalle <span aria-hidden="true">↗</span></span></span>' +
     "</button>";
 }
 
@@ -352,7 +368,7 @@ function modalMarkup(day) {
     '<div class="modal-badges"><span class="day-status ' + toneClass(day) + '">' + escapeHTML(day.status.label) + '</span>' + doneBadge(day) + '</div>' +
     '<p class="modal-date">' + formatDate(day.date, { weekday:'long',day:'numeric',month:'long',year:'numeric' }) + '</p><h2 id="detail-title">' + cleanText(day.title) + '</h2>' +
     (['steady','controlled','hard'].includes(day.trainingColor) && day.kilometers !== null ? '<div class="modal-distance">' + formatKm(day.kilometers) + ' en el plan</div>' : '') +
-    (day.description ? '<div class="modal-description">' + cleanText(day.description) + '</div>' : '<p class="modal-description muted">La planilla no tiene una descripción para este día.</p>') +
+    (trainingDescription(day) ? '<div class="modal-description">' + cleanText(trainingDescription(day)) + '</div>' : '<p class="modal-description muted">La planilla no tiene una descripción para este día.</p>') + trainingReferencesMarkup(day) +
     (distance?.warning ? '<p class="record-warning">' + escapeHTML(distance.warning) + '</p>' : distance?.parts?.length ? '<details class="distance-breakdown"><summary>Cómo se calculó la distancia</summary><p>' + escapeHTML(distance.source) + '</p><ul>' + distance.parts.map(part => '<li>' + escapeHTML(part.label) + ' = ' + formatKm(part.kilometers) + '</li>').join('') + '</ul><p>El título y la descripción no se suman dos veces.</p></details>' : '') +
     planChangeMarkup(day) + '<details class="modal-weather"><summary>Ver clima de este día</summary>' + weatherPanelMarkup(weather, dateKey(day.date)) + '</details><label class="session-note-label" for="session-note">Tu nota del entrenamiento</label><textarea id="session-note" rows="3" maxlength="3000" placeholder="Sensaciones, cambios o cómo salió…"' + (!state.recordsReady || state.savingSession || drive.syncing || drive.reloading ? ' disabled' : '') + '>' + escapeHTML(note) + '</textarea><button class="outline-button" type="button" data-save-note="' + escapeHTML(day.id) + '"' + (!state.recordsReady || state.savingSession || drive.syncing || drive.reloading ? ' disabled' : '') + '>Guardar nota</button><p class="modal-footnote">Tus notas se guardan por fecha y se conservan al actualizar el Excel.</p></section></div>';
 }
@@ -840,6 +856,7 @@ async function loadFile(file, { restore = false, metadata = {}, preserveView = f
     state.driveRevision = state.planSource === 'drive' ? metadata.driveRevision || '' : '';
     state.driveCheckedAt = state.planSource === 'drive' ? metadata.driveCheckedAt || 0 : 0;
     state.weeks = parsed.weeks;
+    state.catalog = parsed.catalog || {};
     state.months = parsed.months;
     const years = [...new Set(uniqueDays(parsed.weeks).map(day => day.date.getFullYear()))];
     if (state.loadYear !== 'all' && !years.includes(Number(state.loadYear))) state.loadYear = 'all';
