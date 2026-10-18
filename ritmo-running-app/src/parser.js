@@ -167,7 +167,7 @@ function readCatalog(workbook) {
     const category = cellText(cells.getCell(2));
     const name = cellText(cells.getCell(3));
     const detail = cellText(cells.getCell(4));
-    if (/^\d{3}$/.test(id) && name) catalog[id] = { id, category, name, detail };
+    if (/^\d{1,3}$/.test(id) && name) catalog[id] = { id, category, name, detail };
   }
   return catalog;
 }
@@ -178,26 +178,26 @@ export function parseTrainingReferences(description, catalog = {}) {
   // cuando hay una rutina real que pueda mostrarse completa.
   const refs = [];
   const ids = new Set();
-  for (const match of raw.matchAll(/Fuerza\s*#(\d{3})|Fuerza\s+[AB]\s*\(#(\d{3})\)|\[FUERZA:(\d{3})\]/gi)) {
-    const id = match[1] || match[2] || match[3];
+  for (const match of raw.matchAll(/Fuerza\s*#(\d{1,3})|Fuerza\s+[AB]\s*\(#(\d{1,3})\)|\[FUERZA:(\d{1,3})\]/gi)) {
+    const id = String(Number(match[1] || match[2] || match[3])).padStart(3, "0");
     if (ids.has(id)) continue;
     ids.add(id);
     if (catalog[id]) refs.push({ ...catalog[id], kind: "fuerza" });
   }
-  let visible = raw.replace(/\[ENTRENO:\d{3}\]/g, "").trim();
+  let visible = raw.replace(/\[ENTRENO:\d{1,3}\]/g, "").trim();
   for (const ref of refs) {
-    visible = visible.replace(new RegExp("Fuerza\\s*#" + ref.id + "(?!\\d)", "gi"), "");
+    visible = visible.replace(new RegExp("Fuerza\\s*#0*" + Number(ref.id) + "(?!\\d)", "gi"), "");
     const label = new RegExp("Fuerza\\s+[AB]\\s*\\(#" + ref.id + "\\)\\s*[—–-]?\\s*\\d*\\s*min[^\\n]*", "gi");
     visible = visible.replace(label, "");
     visible = visible.replace(new RegExp("\\[FUERZA:" + ref.id + "\\]", "g"), "");
   }
   // La línea de ejercicios repetida bajo «Fuerza A/B» pasa a la tarjeta únicamente
   // si encontramos esa rutina en el catálogo; sin catálogo no se borra información.
-  if (refs.length && /Fuerza\s+[AB]\s*\(#\d{3}\)/i.test(raw)) {
+  if (refs.length && /Fuerza\s+[AB]\s*\(#\d{1,3}\)/i.test(raw)) {
     const lines = raw.split("\n");
     const removed = new Set();
     for (let i = 0; i < lines.length; i++) {
-      const match = lines[i].match(/Fuerza\s+[AB]\s*\(#(\d{3})\)/i);
+      const match = lines[i].match(/Fuerza\s+[AB]\s*\(#(\d{1,3})\)/i);
       if (!match || !refs.some(ref => ref.id === match[1])) continue;
       if (lines[i + 1] && /(?:\d+\s*[x×]\s*\d+|plancha|puente de gl[uú]teos|gemelos|sentadillas)/i.test(lines[i + 1])) removed.add(lines[i + 1]);
     }
