@@ -811,3 +811,18 @@ button:disabled { cursor: not-allowed; }
 .offline-banner button { flex: 0 1 auto; white-space: normal; text-align: left; }
 .reload-button:disabled { opacity: .65; }
 @media(max-width:720px) { .offline-banner { width: calc(100% - 30px); align-items: flex-start; flex-direction: column; gap: 5px; } }
+
+/* Entrenamientos asociados a los IDs estables del Excel */
+.training-references { display: grid; gap: .55rem; margin: .85rem 0; }
+.training-reference { padding: .75rem .85rem; background: rgba(60,124,191,.08); border: 1px solid rgba(60,124,191,.20); border-radius: 12px; }
+.training-reference-strength { background: rgba(59,152,103,.08); border-color: rgba(59,152,103,.26); }
+.training-reference-heading { display: flex; flex-wrap: wrap; align-items: baseline; gap: .4rem .65rem; }
+.training-reference-heading strong { font-size: .96rem; overflow-wrap: anywhere; }
+.training-reference-kind { font-size: .68rem; font-weight: 750; letter-spacing: .06em; opacity: .75; }
+.training-reference code { margin-left: auto; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .8rem; }
+.training-reference p { margin: .4rem 0 .15rem; font-size: .9rem; }
+.training-reference small { opacity: .72; }
+.training-references-compact { margin: .45rem 0; gap: .3rem; }
+.training-references-compact .training-reference { padding: .4rem .5rem; }
+.training-references-compact .training-reference-heading strong { font-size: .78rem; }
+.training-references-compact .training-reference-kind { font-size: .58rem; }
