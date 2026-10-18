@@ -304,3 +304,10 @@ test('sin hoja Fuerza, la descripcion no pierde los ejercicios',()=>{
   assert.equal(parsed.refs.length,0);
   assert.match(parsed.visible,/sentadillas/);
 });
+
+test('referencias cortas de fuerza conservan el running', () => {
+  const result = parseTrainingReferences('6K regenerativo\nFuerza #106', { '106': {id:'106',name:'Fuerza B', detail:'15 min | 2×15 sóleo'} });
+  assert.equal(result.visible, '6K regenerativo');
+  assert.equal(result.refs[0].id, '106');
+  assert.equal(result.refs[0].name, 'Fuerza B');
+});
