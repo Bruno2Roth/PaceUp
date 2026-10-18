@@ -135,6 +135,7 @@ function classify(title, description, fillColor) {
   const titleText = normalize(title);
   const color = fillColor.slice(-6);
   const category = colorCategory(fillColor);
+  if (/VIAJE|CORDOBA|BARILOCHE/.test(titleText)) return { kind: "travel", label: "Viaje" };
   if (category) return { kind: category, label: ({ lesion: "Lesión", rest: "Descanso", steady: "Amarillo", controlled: "Naranja", hard: "Rojo" })[category] };
 
   if (color === "00FFFF" || /LESION|MOLESTIA/.test(titleText)) return { kind: "lesion", label: "Lesión" };
@@ -154,6 +155,34 @@ function classify(title, description, fillColor) {
   if (/HEBRAICA|CONTROLADO/.test(text)) return { kind: "controlled", label: "Controlado" };
   if (text.trim()) return { kind: "planned", label: "Planificado" };
   return { kind: "empty", label: "Sin sesión" };
+}
+
+function readCatalog(workbook) {
+  const sheet = workbook.worksheets.find(item => normalize(item.name) === "ENTRENAMIENTOS");
+  const catalog = {};
+  if (!sheet) return catalog;
+  for (let row = 2; row <= sheet.rowCount; row += 1) {
+    const cells = sheet.getRow(row);
+    const id = cellText(cells.getCell(1)).padStart(3, "0");
+    const category = cellText(cells.getCell(2));
+    const name = cellText(cells.getCell(3));
+    const detail = cellText(cells.getCell(4));
+    if (/^\d{3}$/.test(id) && name) catalog[id] = { id, category, name, detail };
+  }
+  return catalog;
+}
+
+export function parseTrainingReferences(description, catalog = {}) {
+  const raw = String(description || "");
+  const refs = [...raw.matchAll(/\[(ENTRENO|FUERZA):(\d{3})\]/g)].map((match) => {
+    const item = catalog[match[2]];
+    return item ? { ...item, kind: match[1] === "FUERZA" ? "fuerza" : "running" } : { id: match[2], kind: match[1] === "FUERZA" ? "fuerza" : "running", missing: true };
+  });
+  const visible = raw
+    .replace(/\[(?:ENTRENO|FUERZA):\d{3}\]/g, "")
+    .replace(/\[ENTRENAMIENTO:FUERZA[^\]]*\][\s\S]*?\[\/ENTRENAMIENTO\]/g, "")
+    .replace(/\n{3,}/g, "\n\n").trim();
+  return { visible, refs };
 }
 
 function combineNotes(first, second) {
@@ -182,6 +211,7 @@ export function parseRunningWorkbook(workbook, fileName = "") {
   const weeks = [];
   const monthSheets = [];
   const sheetsWithoutCalendar = [];
+  const catalog = readCatalog(workbook);
 
   workbook.worksheets.forEach(worksheet => {
     const monthIndex = getMonthIndex(worksheet.name);
@@ -220,6 +250,7 @@ export function parseRunningWorkbook(workbook, fileName = "") {
         const parsed = extractDay(mainCell, yearForSheet, monthIndex);
         if (!parsed) continue;
         const description = cellText(detailCell);
+        const training = parseTrainingReferences(description, catalog);
         const rawColor = getFillColor(mainCell);
         const status = classify(parsed.title, description, rawColor);
         const distance = sessionDistance(parsed.title, description);
@@ -230,6 +261,8 @@ export function parseRunningWorkbook(workbook, fileName = "") {
           weekday: offset,
           title: parsed.title || (description ? "Detalle del entrenamiento" : "Sin sesión cargada"),
           description,
+          visibleDescription: training.visible,
+          trainingRefs: training.refs,
           kilometers,
           distance,
           status,
@@ -250,6 +283,7 @@ export function parseRunningWorkbook(workbook, fileName = "") {
   return {
     months: uniqueMonths,
     weeks,
+    catalog,
     year,
     diagnostics: {
       monthSheets,
