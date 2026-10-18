@@ -140,7 +140,7 @@ function trainingReferencesMarkup(day, compact = false) {
       const exercises = (parts.length > 1 ? parts.slice(1).join(' | ') : parts[0]).split(/\s*;\s*/).filter(Boolean);
       const duration = parts.length > 1 ? parts[0] : '';
       return '<section class="training-reference training-reference-strength" aria-label="Ejercicios de fuerza">' +
-        '<div class="training-reference-heading"><span class="training-reference-kind">FUERZA EN CASA</span><strong>' + escapeHTML(item.name) + '</strong><code>#' + escapeHTML(item.id) + '</code></div>' +
+        '<div class="training-reference-heading"><span class="training-reference-kind">FUERZA EN CASA</span><strong>' + escapeHTML(item.name) + '</strong><code>#' + escapeHTML(String(Number(item.id))) + '</code></div>' +
         (compact ? '<small>' + escapeHTML(duration || 'Ver ejercicios en el detalle') + '</small>' :
           (duration ? '<p class="strength-duration">' + escapeHTML(duration) + '</p>' : '') +
           (exercises.length ? '<ul class="strength-exercises">' + exercises.map(exercise => '<li>' + escapeHTML(exercise) + '</li>').join('') + '</ul>' : '')) +
