@@ -311,3 +311,12 @@ test('referencias cortas de fuerza conservan el running', () => {
   assert.equal(result.refs[0].id, '106');
   assert.equal(result.refs[0].name, 'Fuerza B');
 });
+
+test('referencias de fuerza 1 y 2 se vinculan a IDs normalizados', () => {
+  const catalog = {'001':{id:'001',name:'Piernas y gemelos',detail:'15 min | 2×12 sentadillas'},'002':{id:'002',name:'Glúteos y sóleo',detail:'15 min | 3×15 sóleo'}};
+  const a=parseTrainingReferences('5K regenerativo\\nFuerza #1', catalog);
+  const b=parseTrainingReferences('6K regenerativo\\nFuerza #2', catalog);
+  assert.equal(a.refs[0].name,'Piernas y gemelos');
+  assert.equal(b.refs[0].name,'Glúteos y sóleo');
+  assert.equal(a.visible,'5K regenerativo');
+});
