@@ -280,3 +280,27 @@ test('el texto original del running no requiere numeracion', () => {
   assert.equal(data.visible, '2K EC + 5x1000m + 2K VC');
   assert.equal(data.refs.length, 0);
 });
+
+test('la hoja Fuerza se utiliza como catalogo del dia', () => {
+  const c = (value) => ({value, text:String(value ?? '')});
+  const strengthRows = [
+    [c('ID'),c('CATEGORÍA'),c('ENTRENAMIENTO'),c('DURACIÓN Y EJERCICIOS')],
+    [c(105),c('PIERNAS'),c('Fuerza A · Piernas y gemelos'),c('15 min | 2×12 sentadillas; 3×15 gemelos')]
+  ];
+  const base = fixture();
+  base.worksheets.push({name:'Fuerza',rowCount:2,
+    getRow(n) {return {getCell(col){return strengthRows[n-1]?.[col-1] || c('');}};}
+  });
+  const month=base.worksheets[0];
+  const orig=month.getRow.bind(month);
+  month.getRow=(n)=> n===3 ? {getCell(col){return col===2 ? c('2K EC + 5K regenerativo\\nFuerza A (#105) — 15 min\\n2x12 sentadillas; 3x15 gemelos') : orig(n).getCell(col);}} : orig(n);
+  const parsed=parseRunningWorkbook(base,'Running 2026.xlsm');
+  assert.equal(parsed.catalog['105'].name,'Fuerza A · Piernas y gemelos');
+  assert.equal(parsed.weeks[0].days[0].trainingRefs[0].id,'105');
+  assert.equal(parsed.weeks[0].days[0].visibleDescription,'2K EC + 5K regenerativo');
+});
+test('sin hoja Fuerza, la descripcion no pierde los ejercicios',()=>{
+  const parsed=parseTrainingReferences('5K suave\\nFuerza A (#105) — 15 min\\n2x12 sentadillas');
+  assert.equal(parsed.refs.length,0);
+  assert.match(parsed.visible,/sentadillas/);
+});
