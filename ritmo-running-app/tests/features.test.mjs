@@ -8,7 +8,7 @@ import { RUNNING_DRIVE } from '../src/driveConfig.js';
 import { DEFAULT_LOCATION, PILAR_LOCATION, readWeatherPreferences, saveWeatherPreferences } from '../src/weather.js';
 import { dayWeatherMarkup, weatherPanelMarkup } from '../src/weatherView.js';
 import { sessionDistance, estimateKilometers } from '../src/distance.js';
-import { parseRunningWorkbook, colorCategory } from '../src/parser.js';
+import { parseRunningWorkbook, parseTrainingReferences, colorCategory } from '../src/parser.js';
 import { dateKey, trainingKilometers, weeklyLoad, planSignature, planChanged, isActivity, historicalSessionRecords } from '../src/training.js';
 
 const cases = [
@@ -267,4 +267,25 @@ test('offline boot makes no Drive requests and temporary imports never replace t
  assert.equal(db.records['2026-09-29'].note,'Guardada al reconectar');assert.equal(db.records['2026-09-29'].done,false);
  const result=await a.run(`loadFile(new File([new Uint8Array([1])], 'online manual.xlsx'))`);
  assert.equal(result.loaded,false);assert.equal(db.workbook.driveRevision,'2'.repeat(64));
+});
+
+test('referencias del Excel: running y fuerza se resuelven por ID', () => {
+  const catalog = {
+    '003': { id: '003', name: 'Regenerativo Medio', category: 'RECUPERACIÓN', detail: '' },
+    '105': { id: '105', name: 'Fuerza A', category: 'FUERZA', detail: '3x15 gemelos' }
+  };
+  const value = "5K regenerativos\n[ENTRENO:003]\n[FUERZA:105]";
+  const parsed = parseTrainingReferences(value, catalog);
+  assert.equal(parsed.visible, '5K regenerativos');
+  assert.deepEqual(parsed.refs.map(x => [x.id, x.name, x.kind]), [
+    ['003', 'Regenerativo Medio', 'running'],
+    ['105', 'Fuerza A', 'fuerza']
+  ]);
+});
+test('descripciones de fuerza no duplican lo que ve el usuario', () => {
+  const data = parseTrainingReferences("6K suaves\n[ENTRENAMIENTO:FUERZA|CODIGO:FUERZA_B|DURACION:15MIN]\n2x15 puente\n[/ENTRENAMIENTO]\n[FUERZA:106]", {
+    '106': {id:'106',name:'Fuerza B',category:'FUERZA',detail:'Puente y sóleo'}
+  });
+  assert.equal(data.visible, '6K suaves');
+  assert.equal(data.refs[0].name, 'Fuerza B');
 });
