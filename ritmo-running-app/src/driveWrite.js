@@ -9,7 +9,7 @@ let token='',tokenExpiry=0,scriptPromise=null,tokenClient=null;
 
 export function driveWriteConfigured(){return Boolean(CLIENT_ID);}
 export function driveWriteConnected(){return Boolean(token && Date.now()<tokenExpiry-60000);}
-export function disconnectDriveWrite(){token='';tokenExpiry=0;if(globalThis.google?.accounts?.oauth2?.revoke) {/* El token se descarta; revocación opcional */}}
+export function disconnectDriveWrite(){const previous=token;token='';tokenExpiry=0;if(previous)globalThis.google?.accounts?.oauth2?.revoke?.(previous,()=>{});}
 export function loadGoogleIdentity(){
   if(!CLIENT_ID)return Promise.reject(new Error('Para guardar en Drive falta configurar VITE_GOOGLE_CLIENT_ID en Netlify.'));
   if(globalThis.google?.accounts?.oauth2?.initTokenClient)return Promise.resolve();
@@ -65,7 +65,8 @@ export async function saveDayToGoogleDrive(change) {
   const metadata=await metadataResponse.json();
   if(metadata.id!==id||metadata.capabilities?.canEdit!==true)
     throw new Error('Esta cuenta no tiene permisos de edición sobre Running.xlsm.');
-  if(metadata.mimeType!=='application/vnd.ms-excel.sheet.macroEnabled.12' && metadata.mimeType!=='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+  const mime=String(metadata.mimeType||'').toLowerCase();
+  if(mime!=='application/vnd.ms-excel.sheet.macroenabled.12' && mime!=='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     throw new Error('El archivo de Drive no es un Excel compatible. No se modificó.');
   const downloaded=await authorized('https://www.googleapis.com/drive/v3/files/'+encodeURIComponent(id)+'?alt=media');
   if(!downloaded.ok)throw new Error('Google no permitió leer el Excel antes de actualizarlo.');
