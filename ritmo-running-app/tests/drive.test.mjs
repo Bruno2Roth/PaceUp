@@ -37,7 +37,7 @@ test('browser obtains a verified workbook and bypasses cached HTTP data',async()
  const revision=createHash('sha256').update(bytes).digest('hex');let called;
  const result=await fetchDriveWorkbook(async(url,options)=>{called={url,options};return new Response(bytes,{headers:{'x-paceup-file-id':RUNNING_DRIVE.id,'x-paceup-revision':revision}});});
  assert.equal(called.url,RUNNING_DRIVE.endpoint);assert.equal(called.options.cache,'no-store');
- assert.equal(result.source,'drive');assert.equal(result.driveRevision,revision);assert.equal(result.name,'Running.xlsx');
+ assert.equal(result.source,'drive');assert.equal(result.driveRevision,revision);assert.equal(result.name,RUNNING_DRIVE.name);
  assert.deepEqual(new Uint8Array(result.buffer),bytes);
 });
 
