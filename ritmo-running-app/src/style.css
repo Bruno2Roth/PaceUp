@@ -833,12 +833,12 @@ button:disabled { cursor: not-allowed; }
 
 
 /* Registro privado y colores del Excel: último tono pastel, primero intenso. */
-.day-card.tone-steady { --pace-pastel:#ffe599; --pace-fuerte:#ffff00; --pace-strong-text:#302700; }
-.day-card.tone-controlled { --pace-pastel:#f9cb9c; --pace-fuerte:#ff9900; --pace-strong-text:#332100; }
-.day-card.tone-hard { --pace-pastel:#f4cccc; --pace-fuerte:#ff0000; --pace-strong-text:#fff; }
-.day-card.tone-easy,.day-card.tone-rest { --pace-pastel:#d9ead3; --pace-fuerte:#00ff00; --pace-strong-text:#103500; }
-.day-card.tone-lesion { --pace-pastel:#d0e0e3; --pace-fuerte:#00ffff; --pace-strong-text:#113333; }
-.day-card.tone-travel { --pace-pastel:#c9daf8; --pace-fuerte:#0000ff; --pace-strong-text:#fff; }
+.day-card.tone-steady { --pace-pastel:#ffd966; --pace-fuerte:#ffff00; --pace-strong-text:#302700; }
+.day-card.tone-controlled { --pace-pastel:#f6b26b; --pace-fuerte:#ff9900; --pace-strong-text:#332100; }
+.day-card.tone-hard { --pace-pastel:#e06666; --pace-fuerte:#ff0000; --pace-strong-text:#fff; }
+.day-card.tone-easy,.day-card.tone-rest { --pace-pastel:#93c47d; --pace-fuerte:#00ff00; --pace-strong-text:#103500; }
+.day-card.tone-lesion { --pace-pastel:#76a5af; --pace-fuerte:#00ffff; --pace-strong-text:#113333; }
+.day-card.tone-travel { --pace-pastel:#6d9eeb; --pace-fuerte:#4a86e8; --pace-strong-text:#fff; }
 .day-card.tone-gym,.day-card.tone-planned { --pace-pastel:#e9eef0; --pace-fuerte:#90a4ae; --pace-strong-text:#17272d; }
 .day-card[class*="tone-"] { background:var(--pace-pastel,#fff); }
 .day-card[class*="tone-"]:hover { background:var(--pace-pastel,#fff); filter:brightness(.98); }
