@@ -54,13 +54,39 @@ La vista **Registro privado** (ruta `#registro` dentro de PaceUp) permite revisa
 
 Al abrir el detalle de un día de running, se puede:
 - Marcarlo como listo o devolverlo a pendiente, sin borrar las respuestas.
-- Editar título, descripción, categoría e indicación de km planificados. La edición es una capa local y no modifica el Excel original de Drive.
+- Editar título, descripción, categoría e indicación de km planificados. Con Google OAuth autorizado, esta edición también actualiza Running.xlsm en Drive. Si Google no autoriza el guardado, la edición local figura como pendiente.
 - Responder un check-in previo (sueño, fatiga, estrés y molestias).
 - Registrar el resultado posterior (km, minutos, esfuerzo percibido y molestias).
 - Mantener la nota personal y exportar los registros a CSV desde la vista privada.
 
 Los entrenamientos pendientes usan los colores pastel de la última fila de la referencia de Excel; los marcados como completados usan los colores intensos de la primera fila. Los días de descanso o lesión no ofrecen la acción de completar una sesión.
 
-**Privacidad y sincronización:** los registros están en IndexedDB, solo en ese perfil del navegador. **Aún no hay cuenta, autenticación ni sincronización con la nube**. No se deben considerar respaldados automáticamente ni disponibles desde otro dispositivo. Exportar CSV genera una copia local. Compartir un dispositivo o descargar el CSV puede exponer estos datos a otras personas. La importación o sincronización entre dispositivos deberá implementarse como una función separada, con autenticación y acceso privado.
+**Privacidad y sincronización:** los registros están en IndexedDB, solo en ese perfil del navegador. **Las respuestas y notas privadas todavía no se sincronizan con la nube**. No se deben considerar respaldados automáticamente ni disponibles desde otro dispositivo. Exportar CSV genera una copia local. Compartir un dispositivo o descargar el CSV puede exponer estos datos a otras personas. La importación o sincronización entre dispositivos deberá implementarse como una función separada, con autenticación y acceso privado.
 
 El color fuerte señala que el usuario marcó una sesión; no confirma su realización mediante datos GPS o verificación externa. Las recomendaciones de fatiga son orientativas y no sustituyen evaluación médica ante dolor persistente o que altere la pisada.
+
+
+## Editar el entrenamiento y guardarlo también en Drive
+
+La ficha del entrenamiento muestra primero los botones «Marcar como listo» y «Editar entrenamiento». El editor permite modificar el texto, las indicaciones, el color y los kilómetros sin completar el cuestionario de recuperación.
+
+El archivo original Running.xlsm es la fuente de verdad. Para actualizarlo hace falta autorización de Google con una cuenta que tenga permiso de escritura; la lectura por enlace ya existente no permite guardar.
+
+### Configuración de Google OAuth en Netlify
+
+1. Crear o seleccionar un proyecto en Google Cloud Console, habilitar Google Drive API y configurar la pantalla de consentimiento. Para un proyecto en modo de prueba, incluir la cuenta propietaria como usuario de prueba.
+2. Crear un Client ID de OAuth 2.0 para una aplicación web. Agregar el origen HTTPS exacto del sitio de Netlify a los orígenes JavaScript autorizados. Para desarrollo local incluir http://localhost:5173.
+3. Configurar la variable de compilación VITE_GOOGLE_CLIENT_ID en Netlify usando ese Client ID público, y volver a desplegar. No introducir secretos ni tokens privados en variables VITE_ ni en GitHub.
+4. En PaceUp, entrar a Ajustes > Conectar mi Google Drive y autorizar la cuenta propietaria. Luego editar un entrenamiento y guardar. Confirmar el cambio abriendo Running.xlsm desde Drive.
+
+Si no está configurada la autorización o no hay conexión, se guardan modificaciones en IndexedDB y aparece un aviso «Pendiente de sincronizar». No se presenta como una escritura completada. Una vez autorizado, se puede volver a guardar el día pendiente.
+
+**Privacidad:** las notas, horas de sueño, molestias, RPE y kilómetros realmente realizados continúan en el registro privado local. No se escriben en Running.xlsm, dado que el archivo puede leerse con el enlace compartido. La sincronización privada entre dispositivos sigue pendiente de implementar.
+
+**Alcance del permiso:** para modificar este archivo de Excel anterior a PaceUp, Google solicita el scope de Drive completo. Es un permiso amplio y puede requerir revisión de la app para uso público. En una solución multiusuario es preferible un flujo con Google Picker y drive.file o un backend autenticado con acceso restringido.
+
+**Conservación del libro:** la edición se limita a las celdas del día seleccionado y su color; el resto de entradas ZIP (hojas, imágenes y otros objetos) permanece. La app comprueba que ese día no haya sido modificado en Drive antes de subir el archivo. Aun así no hay bloqueo transaccional entre lectura y escritura, por lo que no deben hacerse ediciones simultáneas desde varios dispositivos. Cambiar un libro con macros firmadas puede invalidar firmas digitales.
+
+### Pruebas
+
+El test de actualización del Excel comprueba título, descripción, color de pendiente/completado, conservación de contenidos binarios y detección de ediciones concurrentes. El flujo de GitHub Actions ejecuta npm test y npm run build.
