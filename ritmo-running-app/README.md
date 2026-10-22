@@ -46,3 +46,21 @@ Las vistas tienen enlaces propios mediante fragmentos como #inicio, #calendario 
 ## Hora del clima
 
 El pronóstico usa las 19:00 de lunes a viernes y las 16:00 los sábados. Los domingos mantienen las 18:00. Junto al clima de hoy y en el detalle de cada sesión se puede elegir otra hora para esa fecha, sin afectar otras fechas. El cambio se mantiene solamente mientras la app siga abierta; al recargar la página o volver a abrirla se usa la hora predeterminada. La ubicación y el pronóstico siguen guardándose, pero las horas elegidas no se escriben en almacenamiento local y cualquier hora global guardada por una versión anterior se ignora.
+
+
+## Registro privado de entrenamientos
+
+La vista **Registro privado** (ruta `#registro` dentro de PaceUp) permite revisar todos los días del Excel, los registrados y los modificados, con filtros de mes y estado. Se puede abrir incluso cuando la copia del plan no está disponible, siempre que el navegador conserve el historial.
+
+Al abrir el detalle de un día de running, se puede:
+- Marcarlo como listo o devolverlo a pendiente, sin borrar las respuestas.
+- Editar título, descripción, categoría e indicación de km planificados. La edición es una capa local y no modifica el Excel original de Drive.
+- Responder un check-in previo (sueño, fatiga, estrés y molestias).
+- Registrar el resultado posterior (km, minutos, esfuerzo percibido y molestias).
+- Mantener la nota personal y exportar los registros a CSV desde la vista privada.
+
+Los entrenamientos pendientes usan los colores pastel de la última fila de la referencia de Excel; los marcados como completados usan los colores intensos de la primera fila. Los días de descanso o lesión no ofrecen la acción de completar una sesión.
+
+**Privacidad y sincronización:** los registros están en IndexedDB, solo en ese perfil del navegador. **Aún no hay cuenta, autenticación ni sincronización con la nube**. No se deben considerar respaldados automáticamente ni disponibles desde otro dispositivo. Exportar CSV genera una copia local. Compartir un dispositivo o descargar el CSV puede exponer estos datos a otras personas. La importación o sincronización entre dispositivos deberá implementarse como una función separada, con autenticación y acceso privado.
+
+El color fuerte señala que el usuario marcó una sesión; no confirma su realización mediante datos GPS o verificación externa. Las recomendaciones de fatiga son orientativas y no sustituyen evaluación médica ante dolor persistente o que altere la pisada.
