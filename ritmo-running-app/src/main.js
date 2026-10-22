@@ -387,14 +387,15 @@ function modalMarkup(day) {
   const record = {...sessionRecord(day),done:isDayDone(day)};
   const note = Object.hasOwn(state.noteDrafts, key) ? state.noteDrafts[key] : record.note || '';
   const distance = day.distance;
+  const editor = registryEditorMarkup(day, record, escapeHTML, !state.recordsReady || state.savingSession || drive.syncing || drive.reloading, {configured:driveWriteConfigured(),connected:driveWriteConnected()});
   return '<div class="modal-backdrop" data-close-modal><section class="detail-modal" role="dialog" aria-modal="true" aria-labelledby="detail-title"><button class="modal-close" type="button" aria-label="Cerrar" data-close-modal>×</button>' +
     '<div class="modal-badges"><span class="day-status ' + toneClass(day) + '">' + escapeHTML(day.status.label) + '</span>' + doneBadge(day) + '</div>' +
     '<p class="modal-date">' + formatDate(day.date, { weekday:'long',day:'numeric',month:'long',year:'numeric' }) + '</p><h2 id="detail-title">' + cleanText(day.title) + '</h2>' +
     (['steady','controlled','hard'].includes(day.trainingColor) && day.kilometers !== null ? '<div class="modal-distance">' + formatKm(day.kilometers) + ' en el plan</div>' : '') +
-    (trainingDescription(day) ? '<div class="modal-description">' + cleanText(trainingDescription(day)) + '</div>' : '<p class="modal-description muted">La planilla no tiene una descripción para este día.</p>') + trainingReferencesMarkup(day) +
+    (trainingDescription(day) ? '<div class="modal-description">' + cleanText(trainingDescription(day)) + '</div>' : '<p class="modal-description muted">La planilla no tiene una descripción para este día.</p>') + trainingReferencesMarkup(day) + editor +
     (distance?.warning ? '<p class="record-warning">' + escapeHTML(distance.warning) + '</p>' : distance?.parts?.length ? '<details class="distance-breakdown"><summary>Cómo se calculó la distancia</summary><p>' + escapeHTML(distance.source) + '</p><ul>' + distance.parts.map(part => '<li>' + escapeHTML(part.label) + ' = ' + formatKm(part.kilometers) + '</li>').join('') + '</ul><p>El título y la descripción no se suman dos veces.</p></details>' : '') +
     planChangeMarkup(day) + '<details class="modal-weather"><summary>Ver clima de este día</summary>' + weatherPanelMarkup(weather, dateKey(day.date)) + '</details><label class="session-note-label" for="session-note">Tu nota del entrenamiento</label><textarea id="session-note" rows="3" maxlength="3000" placeholder="Sensaciones, cambios o cómo salió…"' + (!state.recordsReady || state.savingSession || drive.syncing || drive.reloading ? ' disabled' : '') + '>' + escapeHTML(note) + '</textarea><button class="outline-button" type="button" data-save-note="' + escapeHTML(day.id) + '"' + (!state.recordsReady || state.savingSession || drive.syncing || drive.reloading ? ' disabled' : '') + '>Guardar nota</button><p class="modal-footnote">Tus notas se guardan por fecha y se conservan al actualizar el Excel.</p>' +
-    registryEditorMarkup(day, record, escapeHTML, !state.recordsReady || state.savingSession || drive.syncing || drive.reloading, {configured:driveWriteConfigured(),connected:driveWriteConnected()}) + '</section></div>';
+    '</section></div>';
 }
 
 
@@ -411,7 +412,13 @@ async function savePlanInDrive(day, change) {
   const hasChanged=change.title!==source.title||change.description!==source.description||
     change.kind!==source.trainingColor||done!==isDriveCompleted(source.rawColor);
   if(!hasChanged&&!before.pendingDrive) {
-    state.storageMessage='El Excel ya tiene estos datos.';render();return;
+    // Puede haber una marca local antigua que no está reflejada en Drive.
+    if(typeof before.done==='boolean' && before.done!==done) {
+      await saveDayRecord(day,{done,completedAt:done?new Date().toISOString():null,edit:null,pendingDrive:false,driveSyncError:''});
+    } else {
+      state.storageMessage='El Excel ya tiene estos datos.';render();
+    }
+    return;
   }
   state.savingSession=true;
   state.storageMessage='Guardando el entrenamiento…';
@@ -896,7 +903,7 @@ function settingsPage() {
 function feedbackMarkup() {
   const messages = [];
   if (state.error) messages.push(state.error);
-  if (state.storageMessage && (state.view === 'settings' || /No se pudo|No se pudieron|Registro guardado/.test(state.storageMessage))) messages.push(state.storageMessage);
+  if (state.storageMessage && (state.view === 'settings' || /No se pudo|No se pudieron|Registro guardado|Drive|pendiente|Google|actualizado/i.test(state.storageMessage))) messages.push(state.storageMessage);
   if (drive.status === 'warning' && state.view !== 'settings') messages.push(drive.message);
   return messages.length ? '<div class="app-feedback" role="status">' + messages.map(message=>'<p>' + escapeHTML(message) + '</p>').join('') + '</div>' : '';
 }
