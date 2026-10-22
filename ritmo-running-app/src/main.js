@@ -634,53 +634,58 @@ function bindEvents() {
     if (day) saveDayRecord(day, { note: document.querySelector('#session-note').value });
   });
   document.querySelector('[data-toggle-done]')?.addEventListener('click', () => {
-    const day = state.selectedDay;
-    if (!day) return;
-    const record = sessionRecord(day);
-    saveDayRecord(day, {
-      done: !record.done,
-      completedAt: record.done ? null : new Date().toISOString(),
-      planTitle: day.title,
-      planDescription: day.description,
-      planSignature: planSignature(day)
-    });
+    const original=state.selectedDay;
+    if(!original)return;
+    const day=decorateDay(original);
+    savePlanInDrive(original,{title:day.title,description:day.description,kind:day.trainingColor,
+      plannedKm:day.kilometers,done:!isDayDone(original)});
   });
-  document.querySelector('[data-reset-edit]')?.addEventListener('click', () => {
-    if (state.selectedDay) saveDayRecord(state.selectedDay, {edit:null});
+  document.querySelector('[data-quick-cancel]')?.addEventListener('click',event=>{
+    const details=event.currentTarget.closest('details');
+    if(details)details.open=false;
+  });
+  document.querySelector('#paceup-edit-form')?.addEventListener('submit',event=>{
+    event.preventDefault();
+    const day=state.selectedDay;
+    if(!day)return;
+    const data=new FormData(event.currentTarget);
+    const title=String(data.get('title')||'').trim();
+    const description=String(data.get('description')||'').trim();
+    const kind=String(data.get('kind')||'');
+    const rawKm=String(data.get('plannedKm')||'').trim();
+    const plannedKm=rawKm?Number(rawKm):null;
+    if(!title||title.length>1500||description.length>3000||
+      !['steady','controlled','hard','rest','lesion','travel'].includes(kind)||
+      (plannedKm!==null&&(!Number.isFinite(plannedKm)||plannedKm<0||plannedKm>250))) {
+      state.storageMessage='Revisá título, color y kilómetros antes de guardar.';render();return;
+    }
+    const active=decorateDay(day);
+    const named=appendPlannedTotal(title,plannedKm,active.kilometers);
+    savePlanInDrive(day,{title:named,description,kind,plannedKm,done:isDayDone(day)});
   });
   document.querySelector('#registry-day-form')?.addEventListener('submit', event => {
     event.preventDefault();
-    const day = state.selectedDay;
-    if (!day) return;
-    const data = new FormData(event.currentTarget);
-    const optionalNumber = (name,min,max) => {
-      const raw = String(data.get(name) ?? '').trim();
-      if (!raw) return null;
-      const number = Number(raw);
-      if (!Number.isFinite(number) || number < min || number > max) throw new Error('Revisá el valor de '+name);
-      return number;
+    const day=state.selectedDay;
+    if(!day)return;
+    const data=new FormData(event.currentTarget);
+    const number=(name,min,max)=>{
+      const raw=String(data.get(name)??'').trim();
+      if(!raw)return null;
+      const value=Number(raw);
+      if(!Number.isFinite(value)||value<min||value>max)throw new Error('Revisá '+name);
+      return value;
     };
     try {
-      const title = String(data.get('title')||'').trim();
-      const description = String(data.get('description')||'').trim();
-      const kind = String(data.get('kind')||day.trainingColor||'');
-      const plannedKm = optionalNumber('plannedKm',0,250);
-      if (!title) throw new Error('El entrenamiento necesita un título.');
-      const changed = title!==day.title || description!==day.description ||
-        kind!==day.trainingColor || (plannedKm!==null && plannedKm!==day.kilometers);
-      const before = {sleepHours:optionalNumber('sleepHours',0,24),
-        fatigue:optionalNumber('fatigue',1,5),stress:optionalNumber('stress',1,5),
-        pain:String(data.get('pain')||'')};
-      const after = {actualKm:optionalNumber('actualKm',0,250),
-        durationMin:optionalNumber('durationMin',0,1440),rpe:optionalNumber('rpe',1,10),
-        pain:String(data.get('painAfter')||'')};
+      const before={sleepHours:number('sleepHours',0,24),fatigue:number('fatigue',1,5),
+        stress:number('stress',1,5),pain:String(data.get('pain')||'')};
+      const after={actualKm:number('actualKm',0,250),durationMin:number('durationMin',0,1440),
+        rpe:number('rpe',1,10),pain:String(data.get('painAfter')||'')};
       saveDayRecord(day,{
-        edit:changed?{title,description,kind,plannedKm}:null,
-        before:Object.values(before).some(value=>value!==null&&value!=='')?before:null,
-        after:Object.values(after).some(value=>value!==null&&value!=='')?after:null
+        before:Object.values(before).some(x=>x!==null&&x!=='')?before:null,
+        after:Object.values(after).some(x=>x!==null&&x!=='')?after:null
       });
     } catch(error) {
-      state.storageMessage = error.message || 'Revisá los valores del registro.';
+      state.storageMessage=error.message||'Revisá los valores del registro.';
       render();
     }
   });
