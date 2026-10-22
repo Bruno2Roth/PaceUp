@@ -838,18 +838,18 @@ function render() {
   let body;
   if (state.view === 'settings') {
     body = settingsPage();
-  } else if (!state.weeks.length) {
-    body = '<main id="drop-target" class="main-shell empty-shell" data-page="' + state.view + '">' +
-      ((state.loading || drive.syncing || network.initializing) ? loadingMarkup() : emptyState()) +
-      '</main>';
-  } else if (state.view === 'home') {
-    body = '<main id="drop-target" class="main-shell home-shell" data-page="home">' + todayMarkup() + '</main>';
   } else if (state.view === 'records') {
     body = registryPageMarkup({
       days:uniqueDays(state.weeks), records:state.records,
       filter:state.registryFilter,month:state.registryMonth,query:state.registrySearch,
       escapeHTML,formatDate
     });
+  } else if (!state.weeks.length) {
+    body = '<main id="drop-target" class="main-shell empty-shell" data-page="' + state.view + '">' +
+      ((state.loading || drive.syncing || network.initializing) ? loadingMarkup() : emptyState()) +
+      '</main>';
+  } else if (state.view === 'home') {
+    body = '<main id="drop-target" class="main-shell home-shell" data-page="home">' + todayMarkup() + '</main>';
   } else if (state.view === 'calendar') {
     body = '<main id="drop-target" class="main-shell" data-page="calendar">' + pageHeading('Calendario','Explorá los días y los meses de tu plan. Tocá una sesión para ver sus detalles y registrar cómo salió.') +
       nearbyMarkup(new Date(),uniqueDays(state.weeks)) + nextSessionMarkup() +
