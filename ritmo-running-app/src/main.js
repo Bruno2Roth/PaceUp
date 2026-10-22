@@ -707,6 +707,21 @@ function bindEvents() {
     document.body.append(anchor);anchor.click();anchor.remove();
     setTimeout(()=>URL.revokeObjectURL(url),1000);
   });
+  document.querySelector('[data-google-connect]')?.addEventListener('click',async()=>{
+    if(state.connectingGoogle)return;
+    state.connectingGoogle=true;
+    try{
+      await requestGoogleWriteAccess();
+      state.storageMessage='Google Drive autorizado para editar Running.xlsm.';
+      state.error='';
+    } catch(error) {state.storageMessage=error.message;}
+    finally {state.connectingGoogle=false;render();}
+  });
+  document.querySelector('[data-google-disconnect]')?.addEventListener('click',()=>{
+    disconnectDriveWrite();
+    state.storageMessage='Conexión de edición descartada de esta sesión.';
+    render();
+  });
   document.querySelector('[data-forget-file]')?.addEventListener('click', async () => {
     if (state.loading || state.savingSession || drive.syncing || drive.reloading) return;
     state.loading = true;
@@ -865,6 +880,13 @@ function settingsPage() {
     '<p class="settings-copy">' + (state.fileName ? 'Plan abierto: <strong>' + escapeHTML(state.fileName) + '</strong>.' : 'Todavía no hay un plan disponible.') + ' Con internet se consulta Drive al abrir. Sin conexión se usa la última copia guardada, con tus notas y actividades hechas.</p>' +
     '<div class="settings-actions">' + (network.offline ? '<button class="outline-button" type="button" data-open-file' + (busy ? ' disabled' : '') + '>Abrir Excel temporal</button>' : '') + (network.cachedWorkbook ? '<button class="outline-button" type="button" data-forget-file' + (busy ? ' disabled' : '') + '>Borrar copia local</button>' : '') + '</div>' +
     '<p class="settings-hint">' + (network.offline ? 'El Excel abierto manualmente no se guarda ni reemplaza la copia de Drive. ' : 'La opción de abrir un Excel está disponible solo sin conexión. ') + 'Borrar la copia conserva tus registros y el archivo original de Drive.</p></section>' +
+    '<section class="settings-card calendar-panel"><p class="eyebrow">EDITAR GOOGLE DRIVE</p><h2>Conectar Running.xlsm</h2>'+
+    '<p class="settings-copy">Para actualizar el Excel desde PaceUp, autorizá a Google con una cuenta con permiso de edición. El acceso se guarda solo durante esta sesión y nunca se incluye en la aplicación ni en el Excel.</p>'+
+    (driveWriteConfigured()?'<div class="settings-actions"><button class="outline-button" data-google-connect type="button"'+(state.connectingGoogle?' disabled':'')+'>'+
+    (driveWriteConnected()?'✓ Google Drive conectado':'Conectar mi Google Drive')+'</button>'+
+    (driveWriteConnected()?'<button class="outline-button" data-google-disconnect type="button">Desconectar</button>':'')+'</div>':
+    '<p class="registry-sync-pending">Para habilitar escritura en Drive falta configurar VITE_GOOGLE_CLIENT_ID en Netlify. Los cambios pendientes permanecen en este navegador.</p>')+
+    '</section>'+
     '<section class="settings-card calendar-panel"><p class="eyebrow">EN TU DISPOSITIVO</p><h2>Instalar PaceUp</h2><p class="settings-copy">Abrí tu entrenamiento desde la pantalla principal de Android.</p>' +
     (isInstalled ? '<p class="installed-message">✓ Estás usando la app instalada.</p>' : '<button class="outline-button install-button" type="button" data-install>Instalar app</button>') +
     (state.installHelp ? '<p class="settings-copy" role="status">' + escapeHTML(state.installHelp) + '</p>' : '') + '</section>' +
