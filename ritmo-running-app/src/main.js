@@ -6,6 +6,7 @@ import { DEFAULT_LOCATION, PILAR_LOCATION, readWeatherPreferences, saveWeatherPr
 import { dayWeatherMarkup, weatherPanelMarkup } from "./weatherView.js";
 import { RUNNING_DRIVE } from "./driveConfig.js";
 import { fetchDriveWorkbook } from "./drive.js";
+import { applySessionOverride, registryEditorMarkup, registryPageMarkup, registryCsv } from "./registry.js";
 import "./style.css";
 
 const weatherClient = createWeatherClient();
@@ -18,6 +19,7 @@ const network = {offline:navigator.onLine === false,initializing:true,reconnectP
 const VIEWS = [
   {key:'home',hash:'#inicio',label:'Inicio',description:'Tu entrenamiento de hoy'},
   {key:'calendar',hash:'#calendario',label:'Calendario',description:'Ayer, mañana y todos tus meses'},
+  {key:'records',hash:'#registro',label:'Registro privado',description:'Entrenamientos, preguntas y resultados'},
   {key:'load',hash:'#carga',label:'Carga semanal',description:'Kilómetros y evolución del plan'},
   {key:'year',hash:'#estadisticas-anuales',label:'Estadísticas del año',description:'Tu año en perspectiva'},
   {key:'all',hash:'#estadisticas-generales',label:'Estadísticas generales',description:'Todo el historial del archivo'},
@@ -30,6 +32,9 @@ function viewFromHash() {
 const state = {
   records: {},
   noteDrafts: {},
+  registryFilter: "all",
+  registryMonth: dateKey(new Date()).slice(0,7),
+  registrySearch: "",
   recordsReady: false,
   savingSession: false,
   storageMessage: "",
@@ -172,18 +177,22 @@ function selectedWeeks() {
     if (state.activeMonth && week.month + "-" + week.year !== state.activeMonth) return false;
     if (!state.search.trim()) return true;
     const query = state.search.trim().toLocaleLowerCase("es-AR");
-    const weekText = [week.label, week.note, ...week.days.flatMap(day => [day.title, day.description, day.status.label])]
+    const weekText = [week.label, week.note, ...week.days.map(decorateDay).flatMap(day => [day.title, day.description, day.status.label])]
       .join(" ").toLocaleLowerCase("es-AR");
     return weekText.includes(query);
-  });
+  }).map(week => ({...week, days:week.days.map(decorateDay)}));
 }
 
 function countedKm(day) {
   return trainingKilometers(day);
 }
 
+function decorateDay(day) {
+  return day ? applySessionOverride(day, state.records[dateKey(day.date)] || {}) : null;
+}
+
 function uniqueDays(weeks) {
-  return [...new Map(weeks.flatMap(week => week.days).map(day => [day.date.toDateString(), day])).values()];
+  return [...new Map(weeks.flatMap(week => week.days).map(day => [day.date.toDateString(), day])).values()].map(decorateDay);
 }
 
 function monthStatistics(weeks) {
@@ -204,7 +213,7 @@ function doneBadge(day) {
 
 function planChangeMarkup(day) {
   const record = sessionRecord(day);
-  if (!planChanged(day, record)) return '';
+  if (!planChanged(day.sourceDay || day, record)) return '';
   return '<p class="record-warning">El entrenamiento cambió en el nuevo Excel. Tu registro y tu nota se conservaron.</p>' +
     (record.done && record.planTitle ? '<details class="record-original"><summary>Ver entrenamiento marcado como hecho</summary><p>' + cleanText(record.planTitle) + '</p>' + (record.planDescription ? '<p>' + cleanText(record.planDescription) + '</p>' : '') + '</details>' : '');
 }
@@ -232,7 +241,7 @@ function todayMarkup() {
   const day = days.find(item => dateKey(item.date) === dateKey(today));
   const date = formatDate(today, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
   const isToday = dateKey(today) === dateKey(new Date());
-  return '<div class="today-weather-grid"><section class="today-focus ' + (day ? toneClass(day) : '') + '" aria-labelledby="today-title"><div class="today-focus-heading"><p class="eyebrow">' + (isToday ? 'TU ENTRENAMIENTO DE HOY' : 'ENTRENAMIENTO DEL DÍA') + '</p><div class="home-day-controls"><button class="day-step-button" type="button" data-home-step="-1" aria-label="Día anterior">‹</button><time class="home-day-date" aria-live="polite">' + escapeHTML(date) + '</time><button class="day-step-button" type="button" data-home-step="1" aria-label="Día siguiente">›</button></div></div>' +
+  return '<div class="today-weather-grid"><section class="today-focus ' + (day ? toneClass(day) + (sessionRecord(day).done ? ' completed' : '') : '') + '" aria-labelledby="today-title"><div class="today-focus-heading"><p class="eyebrow">' + (isToday ? 'TU ENTRENAMIENTO DE HOY' : 'ENTRENAMIENTO DEL DÍA') + '</p><div class="home-day-controls"><button class="day-step-button" type="button" data-home-step="-1" aria-label="Día anterior">‹</button><time class="home-day-date" aria-live="polite">' + escapeHTML(date) + '</time><button class="day-step-button" type="button" data-home-step="1" aria-label="Día siguiente">›</button></div></div>' +
     (day ? '<div class="nearby-status"><span class="day-status">' + escapeHTML(day.status.label) + '</span>' + doneBadge(day) + '</div><h1 id="today-title" tabindex="-1">' + cleanText(day.title) + '</h1>' +
       (trainingDescription(day) ? '<p class="today-details">' + cleanText(trainingDescription(day)) + '</p>' : '') + trainingReferencesMarkup(day) +
       planChangeMarkup(day) +
@@ -318,7 +327,7 @@ function dayCard(day) {
   const isToday = day.date.toDateString() === today.toDateString();
   const detail = trainingDescription(day) ? '<p class="day-description">' + cleanText(trainingDescription(day)) + "</p>" : "";
   const km = ["steady", "controlled", "hard"].includes(day.trainingColor) && day.kilometers !== null ? '<span class="day-km">' + formatKm(day.kilometers) + "</span>" : "";
-  return '<button class="day-card ' + toneClass(day) + '" type="button" data-day-id="' + escapeHTML(day.id) + '">' +
+  return '<button class="day-card ' + toneClass(day) + (sessionRecord(day).done ? ' completed' : '') + '" type="button" data-day-id="' + escapeHTML(day.id) + '">' +
     '<div class="day-card-top"><span class="day-date">' + formatDate(day.date) + "</span>" +
     (isToday ? '<span class="today-label">Hoy</span>' : "") + "</div>" +
     '<span class="day-status">' + escapeHTML(day.status.label) + "</span>" + doneBadge(day) +
@@ -375,7 +384,8 @@ function modalMarkup(day) {
     (['steady','controlled','hard'].includes(day.trainingColor) && day.kilometers !== null ? '<div class="modal-distance">' + formatKm(day.kilometers) + ' en el plan</div>' : '') +
     (trainingDescription(day) ? '<div class="modal-description">' + cleanText(trainingDescription(day)) + '</div>' : '<p class="modal-description muted">La planilla no tiene una descripción para este día.</p>') + trainingReferencesMarkup(day) +
     (distance?.warning ? '<p class="record-warning">' + escapeHTML(distance.warning) + '</p>' : distance?.parts?.length ? '<details class="distance-breakdown"><summary>Cómo se calculó la distancia</summary><p>' + escapeHTML(distance.source) + '</p><ul>' + distance.parts.map(part => '<li>' + escapeHTML(part.label) + ' = ' + formatKm(part.kilometers) + '</li>').join('') + '</ul><p>El título y la descripción no se suman dos veces.</p></details>' : '') +
-    planChangeMarkup(day) + '<details class="modal-weather"><summary>Ver clima de este día</summary>' + weatherPanelMarkup(weather, dateKey(day.date)) + '</details><label class="session-note-label" for="session-note">Tu nota del entrenamiento</label><textarea id="session-note" rows="3" maxlength="3000" placeholder="Sensaciones, cambios o cómo salió…"' + (!state.recordsReady || state.savingSession || drive.syncing || drive.reloading ? ' disabled' : '') + '>' + escapeHTML(note) + '</textarea><button class="outline-button" type="button" data-save-note="' + escapeHTML(day.id) + '"' + (!state.recordsReady || state.savingSession || drive.syncing || drive.reloading ? ' disabled' : '') + '>Guardar nota</button><p class="modal-footnote">Tus notas se guardan por fecha y se conservan al actualizar el Excel.</p></section></div>';
+    planChangeMarkup(day) + '<details class="modal-weather"><summary>Ver clima de este día</summary>' + weatherPanelMarkup(weather, dateKey(day.date)) + '</details><label class="session-note-label" for="session-note">Tu nota del entrenamiento</label><textarea id="session-note" rows="3" maxlength="3000" placeholder="Sensaciones, cambios o cómo salió…"' + (!state.recordsReady || state.savingSession || drive.syncing || drive.reloading ? ' disabled' : '') + '>' + escapeHTML(note) + '</textarea><button class="outline-button" type="button" data-save-note="' + escapeHTML(day.id) + '"' + (!state.recordsReady || state.savingSession || drive.syncing || drive.reloading ? ' disabled' : '') + '>Guardar nota</button><p class="modal-footnote">Tus notas se guardan por fecha y se conservan al actualizar el Excel.</p>' +
+    registryEditorMarkup(day, record, escapeHTML, !state.recordsReady || state.savingSession || drive.syncing || drive.reloading) + '</section></div>';
 }
 
 async function saveDayRecord(day, patch) {
@@ -551,6 +561,75 @@ function bindEvents() {
   document.querySelector('[data-save-note]')?.addEventListener('click', event => {
     const day = uniqueDays(state.weeks).find(day => day.id === event.currentTarget.dataset.saveNote);
     if (day) saveDayRecord(day, { note: document.querySelector('#session-note').value });
+  });
+  document.querySelector('[data-toggle-done]')?.addEventListener('click', () => {
+    const day = state.selectedDay;
+    if (!day) return;
+    const record = sessionRecord(day);
+    saveDayRecord(day, {
+      done: !record.done,
+      completedAt: record.done ? null : new Date().toISOString(),
+      planTitle: day.title,
+      planDescription: day.description,
+      planSignature: planSignature(day)
+    });
+  });
+  document.querySelector('[data-reset-edit]')?.addEventListener('click', () => {
+    if (state.selectedDay) saveDayRecord(state.selectedDay, {edit:null});
+  });
+  document.querySelector('#registry-day-form')?.addEventListener('submit', event => {
+    event.preventDefault();
+    const day = state.selectedDay;
+    if (!day) return;
+    const data = new FormData(event.currentTarget);
+    const optionalNumber = (name,min,max) => {
+      const raw = String(data.get(name) ?? '').trim();
+      if (!raw) return null;
+      const number = Number(raw);
+      if (!Number.isFinite(number) || number < min || number > max) throw new Error('Revisá el valor de '+name);
+      return number;
+    };
+    try {
+      const title = String(data.get('title')||'').trim();
+      const description = String(data.get('description')||'').trim();
+      const kind = String(data.get('kind')||day.trainingColor||'');
+      const plannedKm = optionalNumber('plannedKm',0,250);
+      if (!title) throw new Error('El entrenamiento necesita un título.');
+      const changed = title!==day.title || description!==day.description ||
+        kind!==day.trainingColor || (plannedKm!==null && plannedKm!==day.kilometers);
+      const before = {sleepHours:optionalNumber('sleepHours',0,24),
+        fatigue:optionalNumber('fatigue',1,5),stress:optionalNumber('stress',1,5),
+        pain:String(data.get('pain')||'')};
+      const after = {actualKm:optionalNumber('actualKm',0,250),
+        durationMin:optionalNumber('durationMin',0,1440),rpe:optionalNumber('rpe',1,10),
+        pain:String(data.get('painAfter')||'')};
+      saveDayRecord(day,{
+        edit:changed?{title,description,kind,plannedKm}:null,
+        before:Object.values(before).some(value=>value!==null&&value!=='')?before:null,
+        after:Object.values(after).some(value=>value!==null&&value!=='')?after:null
+      });
+    } catch(error) {
+      state.storageMessage = error.message || 'Revisá los valores del registro.';
+      render();
+    }
+  });
+  document.querySelector('[data-registry-month]')?.addEventListener('change', event=>{
+    state.registryMonth=event.target.value; render();
+  });
+  document.querySelector('[data-registry-filter]')?.addEventListener('change', event=>{
+    state.registryFilter=event.target.value; render();
+  });
+  document.querySelector('[data-registry-search]')?.addEventListener('change', event=>{
+    state.registrySearch=event.target.value.trim(); render();
+  });
+  document.querySelector('[data-export-registry]')?.addEventListener('click', () => {
+    const csv = registryCsv(uniqueDays(state.weeks),state.records);
+    const blob = new Blob([csv],{type:'text/csv;charset=utf-8;'});
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href=url; anchor.download='paceup-registro-'+dateKey(new Date())+'.csv';
+    document.body.append(anchor);anchor.click();anchor.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
   });
   document.querySelector('[data-forget-file]')?.addEventListener('click', async () => {
     if (state.loading || state.savingSession || drive.syncing || drive.reloading) return;
@@ -765,6 +844,12 @@ function render() {
       '</main>';
   } else if (state.view === 'home') {
     body = '<main id="drop-target" class="main-shell home-shell" data-page="home">' + todayMarkup() + '</main>';
+  } else if (state.view === 'records') {
+    body = registryPageMarkup({
+      days:uniqueDays(state.weeks), records:state.records,
+      filter:state.registryFilter,month:state.registryMonth,query:state.registrySearch,
+      escapeHTML,formatDate
+    });
   } else if (state.view === 'calendar') {
     body = '<main id="drop-target" class="main-shell" data-page="calendar">' + pageHeading('Calendario','Explorá los días y los meses de tu plan. Tocá una sesión para ver sus detalles y registrar cómo salió.') +
       nearbyMarkup(new Date(),uniqueDays(state.weeks)) + nextSessionMarkup() +
@@ -791,7 +876,7 @@ function render() {
   else body = statsPage();
 
   app.innerHTML = '<div class="app-frame">' + header + '<div class="app-layout">' + desktopNavigation() + '<div class="view-content">' + offlineBannerMarkup() + feedbackMarkup() + body + '</div></div>' +
-    (network.offline ? '<input id="excel-file" type="file" accept=".xlsx,.xlsm" hidden>' : '') + modalMarkup(state.selectedDay) + "</div>";
+    (network.offline ? '<input id="excel-file" type="file" accept=".xlsx,.xlsm" hidden>' : '') + modalMarkup(decorateDay(state.selectedDay)) + "</div>";
   bindEvents();
   const menuPanel = document.querySelector('.app-menu[open] .menu-panel');
   if (menuPanel) {
