@@ -42,42 +42,54 @@ function choiceInput(name, label, value, options) {
     options.map(([key,text]) => '<option value="' + key + '"' + (String(value ?? '') === key ? ' selected' : '') + '>' + text + '</option>').join('') + '</select></label>';
 }
 
-export function registryEditorMarkup(day, record, escapeHTML, disabled=false) {
-  const edit = record.edit || {};
-  const before = record.before || {};
-  const after = record.after || {};
-  const message = recoveryMessage(before);
-  const lock = disabled ? ' disabled' : '';
-  const isTraining = ['steady','controlled','hard','easy','gym','planned'].includes(day.trainingColor || day.status?.kind);
-  const doneControl = isTraining
-    ? '<button type="button" class="registry-done-button' + (record.done ? ' is-done' : '') + '" data-toggle-done="' + escapeHTML(day.id) + '"' + lock + '>' +
-      (record.done ? '✓ Entrenamiento listo · volver a pendiente' : 'Marcar entrenamiento como listo') + '</button>'
-    : '<p class="registry-tip">Este día no es una sesión de running para marcar como completada.</p>';
-  return '<section class="registry-edit-section"><div class="registry-edit-heading"><h3>Registro del día</h3><p>Los cambios se guardan en este dispositivo sin modificar el Excel original.</p></div>' +
-    doneControl +
-    '<form id="registry-day-form" class="registry-form">' +
-    '<details><summary>Editar entrenamiento</summary><div class="registry-fields">' +
-    '<label class="registry-field registry-field-wide"><span>Entrenamiento</span><textarea name="title" rows="2" maxlength="1500">' + escapeHTML(edit.title ?? (day.sourceDay || day).title) + '</textarea></label>' +
-    '<label class="registry-field registry-field-wide"><span>Descripción</span><textarea name="description" rows="3" maxlength="3000">' + escapeHTML(edit.description ?? (day.sourceDay || day).description) + '</textarea></label>' +
-    choiceInput('kind','Categoría',edit.kind || (day.sourceDay || day).trainingColor,KINDS) +
-    numericInput('plannedKm','Kilómetros planificados',edit.plannedKm ?? (day.sourceDay || day).kilometers,{min:0,max:250,step:'0.01',placeholder:'Opcional'}) +
-    '</div><p class="registry-tip">Editar no marca la sesión como hecha. La modificación queda separada del archivo de Drive.</p>' +
-    '<button type="button" class="registry-secondary-button" data-reset-edit="' + escapeHTML(day.id) + '"' + lock + '>Restaurar plan original</button></details>' +
-    '<details><summary>Antes de correr · check-in</summary><div class="registry-fields">' +
-    numericInput('sleepHours','Horas de sueño',before.sleepHours,{min:0,max:24,step:'0.5'}) +
-    choiceInput('fatigue','Fatiga (1 poca – 5 mucha)',String(before.fatigue ?? ''),[['','Sin responder'],...Array.from({length:5},(_,i)=>[String(i+1),String(i+1)])]) +
-    choiceInput('stress','Estrés (1 poco – 5 mucho)',String(before.stress ?? ''),[['','Sin responder'],...Array.from({length:5},(_,i)=>[String(i+1),String(i+1)])]) +
-    choiceInput('pain','¿Molestias?',before.pain,[['','Sin responder'],['none','No'],['mild','Leves, sin alterar el movimiento'],['strong','Importantes o modifican la pisada']]) +
-    '</div>' + (message ? '<p class="registry-feedback" role="status">' + escapeHTML(message) + '</p>' : '') +
-    '</details>' +
-    '<details><summary>Después de correr · resultado real</summary><div class="registry-fields">' +
-    numericInput('actualKm','Kilómetros realizados',after.actualKm,{min:0,max:250,step:'0.01'}) +
-    numericInput('durationMin','Duración total (minutos)',after.durationMin,{min:0,max:1440,step:'0.1'}) +
-    choiceInput('rpe','Esfuerzo percibido (1–10)',String(after.rpe ?? ''),[['','Sin responder'],...Array.from({length:10},(_,i)=>[String(i+1),String(i+1)])]) +
-    choiceInput('painAfter','Molestias posteriores',after.pain,[['','Sin responder'],['none','No'],['mild','Leves'],['strong','Importantes o alteran el movimiento']]) +
-    '</div></details>' +
-    '<button class="registry-save-button" type="submit"' + lock + '>Guardar registro</button>' +
-    '</form></section>';
+export function registryEditorMarkup(day, record, escapeHTML, disabled=false, options={}) {
+  const edit=record.edit||{};
+  const source=day.sourceDay||day;
+  const before=record.before||{};
+  const after=record.after||{};
+  const message=recoveryMessage(before);
+  const lock=disabled?' disabled':'';
+  const isTraining=['steady','controlled','hard','easy','gym','planned'].includes(day.trainingColor||day.status?.kind);
+  const doneControl=isTraining
+    ? '<button type="button" class="registry-done-button'+(record.done?' is-done':'')+'" data-toggle-done="'+escapeHTML(day.id)+'"'+lock+'>'+
+      (record.done?'✓ Listo · Marcar pendiente':'✓ Marcar como listo')+'</button>'
+    : '';
+  const pending=record.pendingDrive?
+    '<p class="registry-sync-pending" role="status">Pendiente de guardar en Drive. Los cambios están únicamente en este navegador. '+escapeHTML(record.driveSyncError||'')+'</p>':'';
+  const setup=!options.configured?
+    '<p class="registry-sync-pending">La edición en Google Drive requiere configurar la conexión OAuth en Netlify. Mientras tanto, se conserva como cambio local pendiente.</p>':
+    (options.connected?'<p class="registry-tip">Google Drive conectado. Al guardar se actualizará el archivo original.</p>':
+    '<p class="registry-tip">Al guardar, Google te pedirá autorización para editar Running.xlsm.</p>');
+  return '<section class="registry-edit-section"><div class="registry-edit-heading"><h3>Acciones del entrenamiento</h3>'+
+    '<p>Podés editar el plan, marcarlo como listo o registrar tus resultados.</p></div>' + doneControl + pending +
+    '<details class="registry-quick-edit"><summary>✎ Editar entrenamiento</summary>'+
+    '<form id="paceup-edit-form" class="registry-form">'+
+    '<label class="registry-field registry-field-wide"><span>¿Qué entrenamiento toca?</span><textarea name="title" rows="3" maxlength="1500" required>'+escapeHTML(edit.title??source.title)+'</textarea></label>'+
+    '<label class="registry-field registry-field-wide"><span>Indicaciones y recuperaciones (opcional)</span><textarea name="description" rows="3" maxlength="3000">'+escapeHTML(edit.description??source.description)+'</textarea></label>'+
+    '<div class="registry-fields">'+
+      choiceInput('kind','Color / tipo de día',edit.kind||source.trainingColor,KINDS)+
+      numericInput('plannedKm','Kilómetros (opcional)',edit.plannedKm??source.kilometers,{min:0,max:250,step:'0.01'})+
+    '</div>'+
+    '<button class="registry-save-button" type="submit"'+lock+'>Guardar entrenamiento</button>'+
+    '<button class="registry-secondary-button" type="button" data-quick-cancel>Cancelar</button>'+
+    setup+'</form></details>'+
+    '<form id="registry-day-form" class="registry-form">'+
+    '<details><summary>Antes de entrenar · check-in</summary><div class="registry-fields">'+
+    numericInput('sleepHours','Horas de sueño',before.sleepHours,{min:0,max:24,step:'0.5'})+
+    choiceInput('fatigue','Fatiga (1 poca – 5 mucha)',String(before.fatigue??''),[['','Sin responder'],...Array.from({length:5},(_,i)=>[String(i+1),String(i+1)])])+
+    choiceInput('stress','Estrés (1 poco – 5 mucho)',String(before.stress??''),[['','Sin responder'],...Array.from({length:5},(_,i)=>[String(i+1),String(i+1)])])+
+    choiceInput('pain','¿Molestias?',before.pain,[['','Sin responder'],['none','No'],['mild','Leves, sin alterar el movimiento'],['strong','Importantes o modifican la pisada']])+
+    '</div>'+(message?'<p class="registry-feedback" role="status">'+escapeHTML(message)+'</p>':'')+'</details>'+
+    '<details><summary>Después de entrenar · datos reales</summary><div class="registry-fields">'+
+    numericInput('actualKm','Kilómetros realizados',after.actualKm,{min:0,max:250,step:'0.01'})+
+    numericInput('durationMin','Duración total (minutos)',after.durationMin,{min:0,max:1440,step:'0.1'})+
+    choiceInput('rpe','Esfuerzo percibido (1–10)',String(after.rpe??''),[['','Sin responder'],...Array.from({length:10},(_,i)=>[String(i+1),String(i+1)])])+
+    choiceInput('painAfter','Molestias posteriores',after.pain,[['','Sin responder'],['none','No'],['mild','Leves'],['strong','Importantes o alteran el movimiento']])+
+    '</div></details>'+
+    '<button class="registry-save-button" type="submit"'+lock+'>Guardar respuestas</button>'+
+    '</form>'+
+    '<p class="registry-tip">Sueño, molestias y notas son registros personales y no se agregan al Excel compartido por enlace.</p>'+
+    '</section>';
 }
 
 function field(value) {
