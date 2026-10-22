@@ -397,6 +397,68 @@ function modalMarkup(day) {
     registryEditorMarkup(day, record, escapeHTML, !state.recordsReady || state.savingSession || drive.syncing || drive.reloading, {configured:driveWriteConfigured(),connected:driveWriteConnected()}) + '</section></div>';
 }
 
+
+function appendPlannedTotal(title,km,previousKm) {
+  if(km===null||km===undefined||(previousKm!==null&&previousKm!==undefined&&Math.abs(km-previousKm)<.005))return title;
+  const clean=title.replace(/\n?Total\s*:\s*\d+(?:[,.]\d+)?\s*(?:km|k)\b/gi,'').trim();
+  return clean+'\nTotal: '+String(km).replace('.',',')+' km';
+}
+// El plan y su estado van al Excel; los cuestionarios quedan en IndexedDB.
+async function savePlanInDrive(day, change) {
+  if(!state.recordsReady||state.savingSession||state.loading||drive.syncing||drive.reloading)return;
+  const source=day.sourceDay||day, date=dateKey(source.date), done=Boolean(change.done);
+  const before=state.records[date]||{};
+  const hasChanged=change.title!==source.title||change.description!==source.description||
+    change.kind!==source.trainingColor||done!==isDriveCompleted(source.rawColor);
+  if(!hasChanged&&!before.pendingDrive) {
+    state.storageMessage='El Excel ya tiene estos datos.';render();return;
+  }
+  state.savingSession=true;
+  state.storageMessage='Guardando el entrenamiento…';
+  render();
+  let remoteSaved=false;
+  try {
+    if(!driveWriteConfigured())throw new Error('Falta configurar el acceso OAuth de Google en Netlify.');
+    if(network.offline||state.planSource!=='drive')throw new Error('Abrí el plan de Drive con conexión a Internet.');
+    const updated=await saveDayToGoogleDrive({
+      date,title:change.title,description:change.description,kind:change.kind,done,
+      expected:{title:source.title,description:source.description,kind:source.trainingColor,done:isDriveCompleted(source.rawColor)}
+    });
+    remoteSaved=true;
+    const record=await updateSessionRecord(date,{
+      edit:null,done,completedAt:done?new Date().toISOString():null,
+      pendingDrive:false,driveSyncError:'',planSignature:null,
+      planTitle:change.title,planDescription:change.description
+    });
+    state.records[date]=record;
+    state.savingSession=false;
+    const hash=await crypto.subtle.digest('SHA-256',updated.buffer);
+    const revision=[...new Uint8Array(hash)].map(b=>b.toString(16).padStart(2,'0')).join('');
+    const loaded=await loadFile(new File([updated.buffer],RUNNING_DRIVE.name),{
+      metadata:{source:'drive',driveFileId:RUNNING_DRIVE.id,driveRevision:revision,driveCheckedAt:Date.now()},
+      preserveView:true
+    });
+    if(!loaded?.loaded)throw new Error('Google guardó el archivo, pero la vista no se actualizó. Tocá Recargar.');
+    state.storageMessage='Entrenamiento actualizado en Running.xlsm de Drive.';
+    drive.message=state.storageMessage;drive.status='ok';
+  } catch(error) {
+    if(!remoteSaved) {
+      try{
+        const record=await updateSessionRecord(date,{
+          edit:{title:change.title,description:change.description,kind:change.kind,plannedKm:change.plannedKm??null},
+          done,completedAt:done?new Date().toISOString():null,
+          pendingDrive:true,driveSyncError:error?.message||'Error de sincronización'
+        });
+        state.records[date]=record;
+      }catch{}
+      state.storageMessage='Guardado local pendiente; Drive no se modificó: '+(error?.message||'Error de conexión.');
+    } else state.storageMessage='Drive guardó el cambio, pero falló la recarga local: '+error.message;
+    drive.status='warning';
+  } finally {
+    state.savingSession=false;render();tryReconnect();
+  }
+}
+
 async function saveDayRecord(day, patch) {
   if (!state.recordsReady || state.savingSession || state.loading || drive.syncing || drive.reloading) return;
   state.savingSession = true;
