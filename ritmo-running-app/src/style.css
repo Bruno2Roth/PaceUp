@@ -830,3 +830,74 @@ button:disabled { cursor: not-allowed; }
 .strength-duration { font-weight: 600; margin: .4rem 0; }
 .strength-exercises { margin: .6rem 0 .15rem; padding-left: 1.3rem; display: grid; gap: .4rem; }
 .strength-exercises li { line-height: 1.4; }
+
+
+/* Registro privado y colores del Excel: último tono pastel, primero intenso. */
+.day-card.tone-steady { --pace-pastel:#ffe599; --pace-fuerte:#ffff00; --pace-strong-text:#302700; }
+.day-card.tone-controlled { --pace-pastel:#f9cb9c; --pace-fuerte:#ff9900; --pace-strong-text:#332100; }
+.day-card.tone-hard { --pace-pastel:#f4cccc; --pace-fuerte:#ff0000; --pace-strong-text:#fff; }
+.day-card.tone-easy,.day-card.tone-rest { --pace-pastel:#d9ead3; --pace-fuerte:#00ff00; --pace-strong-text:#103500; }
+.day-card.tone-lesion { --pace-pastel:#d0e0e3; --pace-fuerte:#00ffff; --pace-strong-text:#113333; }
+.day-card.tone-travel { --pace-pastel:#c9daf8; --pace-fuerte:#0000ff; --pace-strong-text:#fff; }
+.day-card.tone-gym,.day-card.tone-planned { --pace-pastel:#e9eef0; --pace-fuerte:#90a4ae; --pace-strong-text:#17272d; }
+.day-card[class*="tone-"] { background:var(--pace-pastel,#fff); }
+.day-card[class*="tone-"]:hover { background:var(--pace-pastel,#fff); filter:brightness(.98); }
+.day-card.completed[class*="tone-"],.day-card.completed[class*="tone-"]:hover { background:var(--pace-fuerte,#dce4d9); border-color:transparent; }
+.day-card.completed .day-title,.day-card.completed .day-date,.day-card.completed .day-description,
+.day-card.completed .day-km,.day-card.completed .open-hint { color:var(--pace-strong-text,#1d2b25); }
+.day-card.completed .day-status,.day-card.completed .done-badge { color:var(--pace-strong-text,#1d2b25); background:rgba(255,255,255,.25); }
+.day-card.completed .day-change { color:var(--pace-strong-text,#1d2b25); }
+.today-focus.completed { box-shadow:0 0 0 3px var(--tone,#c7f278),0 14px 34px rgba(33,57,42,.1); }
+
+.registry-shell .view-heading { margin-bottom:20px; }
+.registry-notice { margin:0 0 16px; padding:16px 20px; background:#eff5e9; border:1px solid #cee2c4; border-radius:14px; }
+.registry-notice strong { color:#26472c; font-size:13px; }
+.registry-notice p { color:#506659; font-size:12px; line-height:1.6; margin:5px 0 0; }
+.registry-summary { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin-bottom:18px; }
+.registry-summary article { padding:18px; border:1px solid var(--line); border-radius:14px; background:#fff; display:flex; flex-direction:column; gap:8px; }
+.registry-summary article span { font-size:11px; color:#64746a; }
+.registry-summary article strong { font-size:27px; letter-spacing:-.04em; color:var(--forest); }
+.registry-panel { margin-bottom:30px; }
+.registry-topline { display:flex; align-items:center; justify-content:space-between; gap:15px; margin-bottom:18px; }
+.registry-topline h2 { margin:0; font-size:21px; color:#274232; }
+.registry-filters { display:flex; flex-wrap:wrap; align-items:end; gap:12px; margin-bottom:22px; }
+.registry-filters label { display:flex; flex-direction:column; gap:5px; font-size:11px; font-weight:700; color:#62756b; }
+.registry-filters select,.registry-filters input { min-height:40px; border:1px solid #d4dfd2; border-radius:10px; background:white; padding:0 10px; color:#25382c; min-width:140px; max-width:100%; }
+.registry-filters input { min-width:230px; }
+.registry-records { display:grid; gap:10px; }
+.registry-row { padding:14px 16px; border:1px solid #e3e9df; border-left:4px solid #c5d5bf; background:#fff; border-radius:12px; display:flex; justify-content:space-between; align-items:center; gap:12px; }
+.registry-row-done { border-left-color:#68a43a; background:#f7fbf3; }
+.registry-row time { color:#768477; font-size:10px; }
+.registry-row h3 { font-size:14px; color:#253e30; margin:5px 0; line-height:1.5; white-space:pre-line; }
+.registry-row p { font-size:11px; margin:0; color:#667b6b; }
+.registry-open,.registry-secondary-button { border:1px solid #cbdcc7; border-radius:9px; background:#f8fbf5; color:#315537; font-weight:700; font-size:11px; padding:9px 12px; cursor:pointer; white-space:nowrap; }
+.registry-orphan { color:#8a978e; font-size:11px; }
+.registry-empty { padding:28px 10px; text-align:center; color:#718075; font-size:12px; }
+.registry-edit-section { margin-top:22px; padding-top:18px; border-top:1px solid #e1e9dc; }
+.registry-edit-heading h3 { margin:0 0 4px; font-size:18px; color:#244232; }
+.registry-edit-heading p,.registry-tip { margin:0 0 14px; color:#758679; font-size:11px; line-height:1.5; }
+.registry-done-button { width:100%; margin:12px 0 16px; border-radius:11px; border:1px solid #99c27c; padding:12px 14px; background:#f0f9e8; color:#285b34; font-size:12px; font-weight:800; cursor:pointer; }
+.registry-done-button.is-done { background:#c6f183; border-color:#9bbd62; }
+.registry-done-button:disabled,.registry-save-button:disabled { opacity:.55; cursor:not-allowed; }
+.registry-form details { border:1px solid #e0e9df; border-radius:11px; margin-bottom:9px; background:#fdfefd; }
+.registry-form details > summary { padding:12px; color:#2c4d38; font-size:12px; font-weight:750; cursor:pointer; }
+.registry-fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; padding:4px 12px 14px; }
+.registry-field { display:flex; flex-direction:column; min-width:0; gap:5px; color:#516558; font-size:11px; font-weight:650; }
+.registry-field-wide { grid-column:1/-1; }
+.registry-field input,.registry-field select,.registry-field textarea { width:100%; padding:10px; border:1px solid #d5e1d0; border-radius:9px; background:#fff; color:#263f2f; font:inherit; font-size:12px; }
+.registry-field textarea { resize:vertical; min-height:60px; }
+.registry-form .registry-tip { padding:0 12px; }
+.registry-secondary-button { margin:0 12px 12px; }
+.registry-save-button { display:block; width:100%; border:0; border-radius:10px; padding:13px; margin-top:16px; cursor:pointer; background:#17352b; color:#fff; font-size:12px; font-weight:800; }
+.registry-feedback { padding:10px; margin:0 12px 12px; background:#fff7e5; border-radius:9px; color:#80602c; font-size:11px; }
+.detail-modal { max-height:min(92vh,960px); overflow-y:auto; }
+@media(max-width:680px) {
+  .registry-summary { grid-template-columns:1fr; gap:8px; }
+  .registry-summary article { padding:12px 14px; }
+  .registry-summary article strong { font-size:23px; }
+  .registry-row { align-items:stretch; flex-direction:column; }
+  .registry-open { align-self:flex-end; }
+  .registry-filters label { flex:1 1 130px; }
+  .registry-filters input { min-width:0; width:100%; }
+  .registry-fields { grid-template-columns:1fr; }
+}
