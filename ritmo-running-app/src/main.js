@@ -7,6 +7,8 @@ import { dayWeatherMarkup, weatherPanelMarkup } from "./weatherView.js";
 import { RUNNING_DRIVE } from "./driveConfig.js";
 import { fetchDriveWorkbook } from "./drive.js";
 import { applySessionOverride, registryEditorMarkup, registryPageMarkup, registryCsv } from "./registry.js";
+import { isDriveCompleted } from "./driveArchive.js";
+import { driveWriteConfigured,driveWriteConnected,loadGoogleIdentity,requestGoogleWriteAccess,disconnectDriveWrite,saveDayToGoogleDrive } from "./driveWrite.js";
 import "./style.css";
 
 const weatherClient = createWeatherClient();
@@ -38,6 +40,7 @@ const state = {
   recordsReady: false,
   savingSession: false,
   storageMessage: "",
+  connectingGoogle: false,
   installHelp: "",
   view: viewFromHash(),
   loadYear: "all",
@@ -207,8 +210,14 @@ function sessionRecord(day) {
   return state.records[dateKey(day.date)] || {};
 }
 
+function isDayDone(day) {
+  if (!day) return false;
+  const record = sessionRecord(day);
+  if (typeof record.done === 'boolean') return record.done;
+  return isDriveCompleted((day.sourceDay || day).rawColor);
+}
 function doneBadge(day) {
-  return sessionRecord(day).done ? '<span class="done-badge">✓ Hecha</span>' : '';
+  return isDayDone(day) ? '<span class="done-badge">✓ Hecha</span>' : '';
 }
 
 function planChangeMarkup(day) {
@@ -241,7 +250,7 @@ function todayMarkup() {
   const day = days.find(item => dateKey(item.date) === dateKey(today));
   const date = formatDate(today, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
   const isToday = dateKey(today) === dateKey(new Date());
-  return '<div class="today-weather-grid"><section class="today-focus ' + (day ? toneClass(day) + (sessionRecord(day).done ? ' completed' : '') : '') + '" aria-labelledby="today-title"><div class="today-focus-heading"><p class="eyebrow">' + (isToday ? 'TU ENTRENAMIENTO DE HOY' : 'ENTRENAMIENTO DEL DÍA') + '</p><div class="home-day-controls"><button class="day-step-button" type="button" data-home-step="-1" aria-label="Día anterior">‹</button><time class="home-day-date" aria-live="polite">' + escapeHTML(date) + '</time><button class="day-step-button" type="button" data-home-step="1" aria-label="Día siguiente">›</button></div></div>' +
+  return '<div class="today-weather-grid"><section class="today-focus ' + (day ? toneClass(day) + (isDayDone(day) ? ' completed' : '') : '') + '" aria-labelledby="today-title"><div class="today-focus-heading"><p class="eyebrow">' + (isToday ? 'TU ENTRENAMIENTO DE HOY' : 'ENTRENAMIENTO DEL DÍA') + '</p><div class="home-day-controls"><button class="day-step-button" type="button" data-home-step="-1" aria-label="Día anterior">‹</button><time class="home-day-date" aria-live="polite">' + escapeHTML(date) + '</time><button class="day-step-button" type="button" data-home-step="1" aria-label="Día siguiente">›</button></div></div>' +
     (day ? '<div class="nearby-status"><span class="day-status">' + escapeHTML(day.status.label) + '</span>' + doneBadge(day) + '</div><h1 id="today-title" tabindex="-1">' + cleanText(day.title) + '</h1>' +
       (trainingDescription(day) ? '<p class="today-details">' + cleanText(trainingDescription(day)) + '</p>' : '') + trainingReferencesMarkup(day) +
       planChangeMarkup(day) +
@@ -327,7 +336,7 @@ function dayCard(day) {
   const isToday = day.date.toDateString() === today.toDateString();
   const detail = trainingDescription(day) ? '<p class="day-description">' + cleanText(trainingDescription(day)) + "</p>" : "";
   const km = ["steady", "controlled", "hard"].includes(day.trainingColor) && day.kilometers !== null ? '<span class="day-km">' + formatKm(day.kilometers) + "</span>" : "";
-  return '<button class="day-card ' + toneClass(day) + (sessionRecord(day).done ? ' completed' : '') + '" type="button" data-day-id="' + escapeHTML(day.id) + '">' +
+  return '<button class="day-card ' + toneClass(day) + (isDayDone(day) ? ' completed' : '') + '" type="button" data-day-id="' + escapeHTML(day.id) + '">' +
     '<div class="day-card-top"><span class="day-date">' + formatDate(day.date) + "</span>" +
     (isToday ? '<span class="today-label">Hoy</span>' : "") + "</div>" +
     '<span class="day-status">' + escapeHTML(day.status.label) + "</span>" + doneBadge(day) +
@@ -375,7 +384,7 @@ function emptyState() {
 function modalMarkup(day) {
   if (!day) return '';
   const key = dateKey(day.date);
-  const record = sessionRecord(day);
+  const record = {...sessionRecord(day),done:isDayDone(day)};
   const note = Object.hasOwn(state.noteDrafts, key) ? state.noteDrafts[key] : record.note || '';
   const distance = day.distance;
   return '<div class="modal-backdrop" data-close-modal><section class="detail-modal" role="dialog" aria-modal="true" aria-labelledby="detail-title"><button class="modal-close" type="button" aria-label="Cerrar" data-close-modal>×</button>' +
@@ -385,7 +394,7 @@ function modalMarkup(day) {
     (trainingDescription(day) ? '<div class="modal-description">' + cleanText(trainingDescription(day)) + '</div>' : '<p class="modal-description muted">La planilla no tiene una descripción para este día.</p>') + trainingReferencesMarkup(day) +
     (distance?.warning ? '<p class="record-warning">' + escapeHTML(distance.warning) + '</p>' : distance?.parts?.length ? '<details class="distance-breakdown"><summary>Cómo se calculó la distancia</summary><p>' + escapeHTML(distance.source) + '</p><ul>' + distance.parts.map(part => '<li>' + escapeHTML(part.label) + ' = ' + formatKm(part.kilometers) + '</li>').join('') + '</ul><p>El título y la descripción no se suman dos veces.</p></details>' : '') +
     planChangeMarkup(day) + '<details class="modal-weather"><summary>Ver clima de este día</summary>' + weatherPanelMarkup(weather, dateKey(day.date)) + '</details><label class="session-note-label" for="session-note">Tu nota del entrenamiento</label><textarea id="session-note" rows="3" maxlength="3000" placeholder="Sensaciones, cambios o cómo salió…"' + (!state.recordsReady || state.savingSession || drive.syncing || drive.reloading ? ' disabled' : '') + '>' + escapeHTML(note) + '</textarea><button class="outline-button" type="button" data-save-note="' + escapeHTML(day.id) + '"' + (!state.recordsReady || state.savingSession || drive.syncing || drive.reloading ? ' disabled' : '') + '>Guardar nota</button><p class="modal-footnote">Tus notas se guardan por fecha y se conservan al actualizar el Excel.</p>' +
-    registryEditorMarkup(day, record, escapeHTML, !state.recordsReady || state.savingSession || drive.syncing || drive.reloading) + '</section></div>';
+    registryEditorMarkup(day, record, escapeHTML, !state.recordsReady || state.savingSession || drive.syncing || drive.reloading, {configured:driveWriteConfigured(),connected:driveWriteConnected()}) + '</section></div>';
 }
 
 async function saveDayRecord(day, patch) {
@@ -1030,6 +1039,7 @@ async function startApp() {
 }
 startApp();
 refreshWeather();
+if(driveWriteConfigured())loadGoogleIdentity().catch(()=>{});
 
 let lastToday = new Date().toDateString();
 setInterval(() => {
