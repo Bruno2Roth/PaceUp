@@ -48,9 +48,13 @@ export function registryEditorMarkup(day, record, escapeHTML, disabled=false) {
   const after = record.after || {};
   const message = recoveryMessage(before);
   const lock = disabled ? ' disabled' : '';
+  const isTraining = ['steady','controlled','hard','easy','gym','planned'].includes(day.trainingColor || day.status?.kind);
+  const doneControl = isTraining
+    ? '<button type="button" class="registry-done-button' + (record.done ? ' is-done' : '') + '" data-toggle-done="' + escapeHTML(day.id) + '"' + lock + '>' +
+      (record.done ? '✓ Entrenamiento listo · volver a pendiente' : 'Marcar entrenamiento como listo') + '</button>'
+    : '<p class="registry-tip">Este día no es una sesión de running para marcar como completada.</p>';
   return '<section class="registry-edit-section"><div class="registry-edit-heading"><h3>Registro del día</h3><p>Los cambios se guardan en este dispositivo sin modificar el Excel original.</p></div>' +
-    '<button type="button" class="registry-done-button' + (record.done ? ' is-done' : '') + '" data-toggle-done="' + escapeHTML(day.id) + '"' + lock + '>' +
-    (record.done ? '✓ Entrenamiento listo · volver a pendiente' : 'Marcar entrenamiento como listo') + '</button>' +
+    doneControl +
     '<form id="registry-day-form" class="registry-form">' +
     '<details><summary>Editar entrenamiento</summary><div class="registry-fields">' +
     '<label class="registry-field registry-field-wide"><span>Entrenamiento</span><textarea name="title" rows="2" maxlength="1500">' + escapeHTML(edit.title ?? (day.sourceDay || day).title) + '</textarea></label>' +
