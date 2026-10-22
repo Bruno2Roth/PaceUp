@@ -1,0 +1,28 @@
+name: Probar PaceUp
+on:
+  push:
+    branches: [feature/editor-simple-sync-drive]
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: ritmo-running-app/package-lock.json
+      - name: Instalar dependencias
+        run: npm ci
+        working-directory: ritmo-running-app
+      - name: Probar lógica y registros
+        run: npm test
+        working-directory: ritmo-running-app
+      - name: Compilar para Netlify
+        run: npm run build
+        working-directory: ritmo-running-app

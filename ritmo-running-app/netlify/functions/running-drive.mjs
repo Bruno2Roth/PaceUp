@@ -32,14 +32,14 @@ export function createRunningDriveHandler(fetcher = globalThis.fetch) {
     const timeout = setTimeout(()=>controller.abort(),20000);
     try {
       const upstream = await fetcher(url,{signal:controller.signal,cache:'no-store',redirect:'follow'});
-      if (!upstream.ok) return errorResponse('No se pudo leer Running.xlsx en Drive. Se conserva la copia local.',502);
+      if (!upstream.ok) return errorResponse('No se pudo leer Running.xlsm en Drive. Se conserva la copia local.',502);
       const bytes = await limitedBytes(upstream);
       if (bytes.length < 4 || bytes[0] !== 0x50 || bytes[1] !== 0x4b || bytes[2] !== 3 || bytes[3] !== 4)
         return errorResponse('Drive no devolvió el Excel. Revisá que el archivo siga permitiendo lectura mediante enlace.',502);
       const revision = createHash('sha256').update(bytes).digest('hex');
       return new Response(bytes,{headers:{...commonHeaders,
-        'Content-Type':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        'Content-Disposition':'attachment; filename="Running.xlsx"',
+        'Content-Type':'application/vnd.ms-excel.sheet.macroEnabled.12',
+        'Content-Disposition':'attachment; filename="Running.xlsm"',
         'X-PaceUp-Revision':revision,'X-PaceUp-File-Id':RUNNING_DRIVE.id}});
     } catch (error) {
       return errorResponse(error.message === 'size' ? 'El Excel supera los 4 MB permitidos para sincronizar. Podés importarlo desde el dispositivo.' : 'No se pudo consultar Drive. Se conserva la copia local.', error.message === 'size' ? 413 : 502);

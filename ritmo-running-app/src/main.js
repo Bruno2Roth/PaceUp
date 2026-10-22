@@ -7,6 +7,8 @@ import { dayWeatherMarkup, weatherPanelMarkup } from "./weatherView.js";
 import { RUNNING_DRIVE } from "./driveConfig.js";
 import { fetchDriveWorkbook } from "./drive.js";
 import { applySessionOverride, registryEditorMarkup, registryPageMarkup, registryCsv } from "./registry.js";
+import { isDriveCompleted } from "./driveArchive.js";
+import { driveWriteConfigured,driveWriteConnected,loadGoogleIdentity,requestGoogleWriteAccess,disconnectDriveWrite,saveDayToGoogleDrive } from "./driveWrite.js";
 import "./style.css";
 
 const weatherClient = createWeatherClient();
@@ -38,6 +40,7 @@ const state = {
   recordsReady: false,
   savingSession: false,
   storageMessage: "",
+  connectingGoogle: false,
   installHelp: "",
   view: viewFromHash(),
   loadYear: "all",
@@ -207,8 +210,14 @@ function sessionRecord(day) {
   return state.records[dateKey(day.date)] || {};
 }
 
+function isDayDone(day) {
+  if (!day) return false;
+  const record = sessionRecord(day);
+  if (typeof record.done === 'boolean') return record.done;
+  return isDriveCompleted((day.sourceDay || day).rawColor);
+}
 function doneBadge(day) {
-  return sessionRecord(day).done ? '<span class="done-badge">✓ Hecha</span>' : '';
+  return isDayDone(day) ? '<span class="done-badge">✓ Hecha</span>' : '';
 }
 
 function planChangeMarkup(day) {
@@ -241,7 +250,7 @@ function todayMarkup() {
   const day = days.find(item => dateKey(item.date) === dateKey(today));
   const date = formatDate(today, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
   const isToday = dateKey(today) === dateKey(new Date());
-  return '<div class="today-weather-grid"><section class="today-focus ' + (day ? toneClass(day) + (sessionRecord(day).done ? ' completed' : '') : '') + '" aria-labelledby="today-title"><div class="today-focus-heading"><p class="eyebrow">' + (isToday ? 'TU ENTRENAMIENTO DE HOY' : 'ENTRENAMIENTO DEL DÍA') + '</p><div class="home-day-controls"><button class="day-step-button" type="button" data-home-step="-1" aria-label="Día anterior">‹</button><time class="home-day-date" aria-live="polite">' + escapeHTML(date) + '</time><button class="day-step-button" type="button" data-home-step="1" aria-label="Día siguiente">›</button></div></div>' +
+  return '<div class="today-weather-grid"><section class="today-focus ' + (day ? toneClass(day) + (isDayDone(day) ? ' completed' : '') : '') + '" aria-labelledby="today-title"><div class="today-focus-heading"><p class="eyebrow">' + (isToday ? 'TU ENTRENAMIENTO DE HOY' : 'ENTRENAMIENTO DEL DÍA') + '</p><div class="home-day-controls"><button class="day-step-button" type="button" data-home-step="-1" aria-label="Día anterior">‹</button><time class="home-day-date" aria-live="polite">' + escapeHTML(date) + '</time><button class="day-step-button" type="button" data-home-step="1" aria-label="Día siguiente">›</button></div></div>' +
     (day ? '<div class="nearby-status"><span class="day-status">' + escapeHTML(day.status.label) + '</span>' + doneBadge(day) + '</div><h1 id="today-title" tabindex="-1">' + cleanText(day.title) + '</h1>' +
       (trainingDescription(day) ? '<p class="today-details">' + cleanText(trainingDescription(day)) + '</p>' : '') + trainingReferencesMarkup(day) +
       planChangeMarkup(day) +
@@ -327,7 +336,7 @@ function dayCard(day) {
   const isToday = day.date.toDateString() === today.toDateString();
   const detail = trainingDescription(day) ? '<p class="day-description">' + cleanText(trainingDescription(day)) + "</p>" : "";
   const km = ["steady", "controlled", "hard"].includes(day.trainingColor) && day.kilometers !== null ? '<span class="day-km">' + formatKm(day.kilometers) + "</span>" : "";
-  return '<button class="day-card ' + toneClass(day) + (sessionRecord(day).done ? ' completed' : '') + '" type="button" data-day-id="' + escapeHTML(day.id) + '">' +
+  return '<button class="day-card ' + toneClass(day) + (isDayDone(day) ? ' completed' : '') + '" type="button" data-day-id="' + escapeHTML(day.id) + '">' +
     '<div class="day-card-top"><span class="day-date">' + formatDate(day.date) + "</span>" +
     (isToday ? '<span class="today-label">Hoy</span>' : "") + "</div>" +
     '<span class="day-status">' + escapeHTML(day.status.label) + "</span>" + doneBadge(day) +
@@ -375,17 +384,86 @@ function emptyState() {
 function modalMarkup(day) {
   if (!day) return '';
   const key = dateKey(day.date);
-  const record = sessionRecord(day);
+  const record = {...sessionRecord(day),done:isDayDone(day)};
   const note = Object.hasOwn(state.noteDrafts, key) ? state.noteDrafts[key] : record.note || '';
   const distance = day.distance;
+  const editor = registryEditorMarkup(day, record, escapeHTML, !state.recordsReady || state.savingSession || drive.syncing || drive.reloading, {configured:driveWriteConfigured(),connected:driveWriteConnected()});
   return '<div class="modal-backdrop" data-close-modal><section class="detail-modal" role="dialog" aria-modal="true" aria-labelledby="detail-title"><button class="modal-close" type="button" aria-label="Cerrar" data-close-modal>×</button>' +
     '<div class="modal-badges"><span class="day-status ' + toneClass(day) + '">' + escapeHTML(day.status.label) + '</span>' + doneBadge(day) + '</div>' +
     '<p class="modal-date">' + formatDate(day.date, { weekday:'long',day:'numeric',month:'long',year:'numeric' }) + '</p><h2 id="detail-title">' + cleanText(day.title) + '</h2>' +
     (['steady','controlled','hard'].includes(day.trainingColor) && day.kilometers !== null ? '<div class="modal-distance">' + formatKm(day.kilometers) + ' en el plan</div>' : '') +
-    (trainingDescription(day) ? '<div class="modal-description">' + cleanText(trainingDescription(day)) + '</div>' : '<p class="modal-description muted">La planilla no tiene una descripción para este día.</p>') + trainingReferencesMarkup(day) +
+    (trainingDescription(day) ? '<div class="modal-description">' + cleanText(trainingDescription(day)) + '</div>' : '<p class="modal-description muted">La planilla no tiene una descripción para este día.</p>') + trainingReferencesMarkup(day) + editor +
     (distance?.warning ? '<p class="record-warning">' + escapeHTML(distance.warning) + '</p>' : distance?.parts?.length ? '<details class="distance-breakdown"><summary>Cómo se calculó la distancia</summary><p>' + escapeHTML(distance.source) + '</p><ul>' + distance.parts.map(part => '<li>' + escapeHTML(part.label) + ' = ' + formatKm(part.kilometers) + '</li>').join('') + '</ul><p>El título y la descripción no se suman dos veces.</p></details>' : '') +
     planChangeMarkup(day) + '<details class="modal-weather"><summary>Ver clima de este día</summary>' + weatherPanelMarkup(weather, dateKey(day.date)) + '</details><label class="session-note-label" for="session-note">Tu nota del entrenamiento</label><textarea id="session-note" rows="3" maxlength="3000" placeholder="Sensaciones, cambios o cómo salió…"' + (!state.recordsReady || state.savingSession || drive.syncing || drive.reloading ? ' disabled' : '') + '>' + escapeHTML(note) + '</textarea><button class="outline-button" type="button" data-save-note="' + escapeHTML(day.id) + '"' + (!state.recordsReady || state.savingSession || drive.syncing || drive.reloading ? ' disabled' : '') + '>Guardar nota</button><p class="modal-footnote">Tus notas se guardan por fecha y se conservan al actualizar el Excel.</p>' +
-    registryEditorMarkup(day, record, escapeHTML, !state.recordsReady || state.savingSession || drive.syncing || drive.reloading) + '</section></div>';
+    '</section></div>';
+}
+
+
+function appendPlannedTotal(title,km,previousKm) {
+  if(km===null||km===undefined||(previousKm!==null&&previousKm!==undefined&&Math.abs(km-previousKm)<.005))return title;
+  const clean=title.replace(/\n?Total\s*:\s*\d+(?:[,.]\d+)?\s*(?:km|k)\b/gi,'').trim();
+  return clean+'\nTotal: '+String(km).replace('.',',')+' km';
+}
+// El plan y su estado van al Excel; los cuestionarios quedan en IndexedDB.
+async function savePlanInDrive(day, change) {
+  if(!state.recordsReady||state.savingSession||state.loading||drive.syncing||drive.reloading)return;
+  const source=day.sourceDay||day, date=dateKey(source.date), done=Boolean(change.done);
+  const before=state.records[date]||{};
+  const hasChanged=change.title!==source.title||change.description!==source.description||
+    change.kind!==source.trainingColor||done!==isDriveCompleted(source.rawColor);
+  if(!hasChanged&&!before.pendingDrive) {
+    // Puede haber una marca local antigua que no está reflejada en Drive.
+    if(typeof before.done==='boolean' && before.done!==done) {
+      await saveDayRecord(day,{done,completedAt:done?new Date().toISOString():null,edit:null,pendingDrive:false,driveSyncError:''});
+    } else {
+      state.storageMessage='El Excel ya tiene estos datos.';render();
+    }
+    return;
+  }
+  state.savingSession=true;
+  state.storageMessage='Guardando el entrenamiento…';
+  render();
+  let remoteSaved=false;
+  try {
+    if(!driveWriteConfigured())throw new Error('Falta configurar el acceso OAuth de Google en Netlify.');
+    if(network.offline||state.planSource!=='drive')throw new Error('Abrí el plan de Drive con conexión a Internet.');
+    const updated=await saveDayToGoogleDrive({
+      date,title:change.title,description:change.description,kind:change.kind,done,
+      expected:{title:source.title,description:source.description,kind:source.trainingColor,done:isDriveCompleted(source.rawColor)}
+    });
+    remoteSaved=true;
+    const record=await updateSessionRecord(date,{
+      edit:null,done,completedAt:done?new Date().toISOString():null,
+      pendingDrive:false,driveSyncError:'',planSignature:null,
+      planTitle:change.title,planDescription:change.description
+    });
+    state.records[date]=record;
+    state.savingSession=false;
+    const hash=await crypto.subtle.digest('SHA-256',updated.buffer);
+    const revision=[...new Uint8Array(hash)].map(b=>b.toString(16).padStart(2,'0')).join('');
+    const loaded=await loadFile(new File([updated.buffer],RUNNING_DRIVE.name),{
+      metadata:{source:'drive',driveFileId:RUNNING_DRIVE.id,driveRevision:revision,driveCheckedAt:Date.now()},
+      preserveView:true
+    });
+    if(!loaded?.loaded)throw new Error('Google guardó el archivo, pero la vista no se actualizó. Tocá Recargar.');
+    state.storageMessage='Entrenamiento actualizado en Running.xlsm de Drive.';
+    drive.message=state.storageMessage;drive.status='ok';
+  } catch(error) {
+    if(!remoteSaved) {
+      try{
+        const record=await updateSessionRecord(date,{
+          edit:{title:change.title,description:change.description,kind:change.kind,plannedKm:change.plannedKm??null},
+          done,completedAt:done?new Date().toISOString():null,
+          pendingDrive:true,driveSyncError:error?.message||'Error de sincronización'
+        });
+        state.records[date]=record;
+      }catch{}
+      state.storageMessage='Guardado local pendiente; Drive no se modificó: '+(error?.message||'Error de conexión.');
+    } else state.storageMessage='Drive guardó el cambio, pero falló la recarga local: '+error.message;
+    drive.status='warning';
+  } finally {
+    state.savingSession=false;render();tryReconnect();
+  }
 }
 
 async function saveDayRecord(day, patch) {
@@ -563,53 +641,58 @@ function bindEvents() {
     if (day) saveDayRecord(day, { note: document.querySelector('#session-note').value });
   });
   document.querySelector('[data-toggle-done]')?.addEventListener('click', () => {
-    const day = state.selectedDay;
-    if (!day) return;
-    const record = sessionRecord(day);
-    saveDayRecord(day, {
-      done: !record.done,
-      completedAt: record.done ? null : new Date().toISOString(),
-      planTitle: day.title,
-      planDescription: day.description,
-      planSignature: planSignature(day)
-    });
+    const original=state.selectedDay;
+    if(!original)return;
+    const day=decorateDay(original);
+    savePlanInDrive(original,{title:day.title,description:day.description,kind:day.trainingColor,
+      plannedKm:day.kilometers,done:!isDayDone(original)});
   });
-  document.querySelector('[data-reset-edit]')?.addEventListener('click', () => {
-    if (state.selectedDay) saveDayRecord(state.selectedDay, {edit:null});
+  document.querySelector('[data-quick-cancel]')?.addEventListener('click',event=>{
+    const details=event.currentTarget.closest('details');
+    if(details)details.open=false;
+  });
+  document.querySelector('#paceup-edit-form')?.addEventListener('submit',event=>{
+    event.preventDefault();
+    const day=state.selectedDay;
+    if(!day)return;
+    const data=new FormData(event.currentTarget);
+    const title=String(data.get('title')||'').trim();
+    const description=String(data.get('description')||'').trim();
+    const kind=String(data.get('kind')||'');
+    const rawKm=String(data.get('plannedKm')||'').trim();
+    const plannedKm=rawKm?Number(rawKm):null;
+    if(!title||title.length>1500||description.length>3000||
+      !['steady','controlled','hard','rest','lesion','travel'].includes(kind)||
+      (plannedKm!==null&&(!Number.isFinite(plannedKm)||plannedKm<0||plannedKm>250))) {
+      state.storageMessage='Revisá título, color y kilómetros antes de guardar.';render();return;
+    }
+    const active=decorateDay(day);
+    const named=appendPlannedTotal(title,plannedKm,active.kilometers);
+    savePlanInDrive(day,{title:named,description,kind,plannedKm,done:isDayDone(day)});
   });
   document.querySelector('#registry-day-form')?.addEventListener('submit', event => {
     event.preventDefault();
-    const day = state.selectedDay;
-    if (!day) return;
-    const data = new FormData(event.currentTarget);
-    const optionalNumber = (name,min,max) => {
-      const raw = String(data.get(name) ?? '').trim();
-      if (!raw) return null;
-      const number = Number(raw);
-      if (!Number.isFinite(number) || number < min || number > max) throw new Error('Revisá el valor de '+name);
-      return number;
+    const day=state.selectedDay;
+    if(!day)return;
+    const data=new FormData(event.currentTarget);
+    const number=(name,min,max)=>{
+      const raw=String(data.get(name)??'').trim();
+      if(!raw)return null;
+      const value=Number(raw);
+      if(!Number.isFinite(value)||value<min||value>max)throw new Error('Revisá '+name);
+      return value;
     };
     try {
-      const title = String(data.get('title')||'').trim();
-      const description = String(data.get('description')||'').trim();
-      const kind = String(data.get('kind')||day.trainingColor||'');
-      const plannedKm = optionalNumber('plannedKm',0,250);
-      if (!title) throw new Error('El entrenamiento necesita un título.');
-      const changed = title!==day.title || description!==day.description ||
-        kind!==day.trainingColor || (plannedKm!==null && plannedKm!==day.kilometers);
-      const before = {sleepHours:optionalNumber('sleepHours',0,24),
-        fatigue:optionalNumber('fatigue',1,5),stress:optionalNumber('stress',1,5),
-        pain:String(data.get('pain')||'')};
-      const after = {actualKm:optionalNumber('actualKm',0,250),
-        durationMin:optionalNumber('durationMin',0,1440),rpe:optionalNumber('rpe',1,10),
-        pain:String(data.get('painAfter')||'')};
+      const before={sleepHours:number('sleepHours',0,24),fatigue:number('fatigue',1,5),
+        stress:number('stress',1,5),pain:String(data.get('pain')||'')};
+      const after={actualKm:number('actualKm',0,250),durationMin:number('durationMin',0,1440),
+        rpe:number('rpe',1,10),pain:String(data.get('painAfter')||'')};
       saveDayRecord(day,{
-        edit:changed?{title,description,kind,plannedKm}:null,
-        before:Object.values(before).some(value=>value!==null&&value!=='')?before:null,
-        after:Object.values(after).some(value=>value!==null&&value!=='')?after:null
+        before:Object.values(before).some(x=>x!==null&&x!=='')?before:null,
+        after:Object.values(after).some(x=>x!==null&&x!=='')?after:null
       });
     } catch(error) {
-      state.storageMessage = error.message || 'Revisá los valores del registro.';
+      state.storageMessage=error.message||'Revisá los valores del registro.';
       render();
     }
   });
@@ -630,6 +713,21 @@ function bindEvents() {
     anchor.href=url; anchor.download='paceup-registro-'+dateKey(new Date())+'.csv';
     document.body.append(anchor);anchor.click();anchor.remove();
     setTimeout(()=>URL.revokeObjectURL(url),1000);
+  });
+  document.querySelector('[data-google-connect]')?.addEventListener('click',async()=>{
+    if(state.connectingGoogle)return;
+    state.connectingGoogle=true;
+    try{
+      await requestGoogleWriteAccess();
+      state.storageMessage='Google Drive autorizado para editar Running.xlsm.';
+      state.error='';
+    } catch(error) {state.storageMessage=error.message;}
+    finally {state.connectingGoogle=false;render();}
+  });
+  document.querySelector('[data-google-disconnect]')?.addEventListener('click',()=>{
+    disconnectDriveWrite();
+    state.storageMessage='Conexión de edición descartada de esta sesión.';
+    render();
   });
   document.querySelector('[data-forget-file]')?.addEventListener('click', async () => {
     if (state.loading || state.savingSession || drive.syncing || drive.reloading) return;
@@ -789,6 +887,13 @@ function settingsPage() {
     '<p class="settings-copy">' + (state.fileName ? 'Plan abierto: <strong>' + escapeHTML(state.fileName) + '</strong>.' : 'Todavía no hay un plan disponible.') + ' Con internet se consulta Drive al abrir. Sin conexión se usa la última copia guardada, con tus notas y actividades hechas.</p>' +
     '<div class="settings-actions">' + (network.offline ? '<button class="outline-button" type="button" data-open-file' + (busy ? ' disabled' : '') + '>Abrir Excel temporal</button>' : '') + (network.cachedWorkbook ? '<button class="outline-button" type="button" data-forget-file' + (busy ? ' disabled' : '') + '>Borrar copia local</button>' : '') + '</div>' +
     '<p class="settings-hint">' + (network.offline ? 'El Excel abierto manualmente no se guarda ni reemplaza la copia de Drive. ' : 'La opción de abrir un Excel está disponible solo sin conexión. ') + 'Borrar la copia conserva tus registros y el archivo original de Drive.</p></section>' +
+    '<section class="settings-card calendar-panel"><p class="eyebrow">EDITAR GOOGLE DRIVE</p><h2>Conectar Running.xlsm</h2>'+
+    '<p class="settings-copy">Para actualizar el Excel desde PaceUp, autorizá a Google con una cuenta con permiso de edición. El acceso se guarda solo durante esta sesión y nunca se incluye en la aplicación ni en el Excel.</p>'+
+    (driveWriteConfigured()?'<div class="settings-actions"><button class="outline-button" data-google-connect type="button"'+(state.connectingGoogle?' disabled':'')+'>'+
+    (driveWriteConnected()?'✓ Google Drive conectado':'Conectar mi Google Drive')+'</button>'+
+    (driveWriteConnected()?'<button class="outline-button" data-google-disconnect type="button">Desconectar</button>':'')+'</div>':
+    '<p class="registry-sync-pending">Para habilitar escritura en Drive falta configurar VITE_GOOGLE_CLIENT_ID en Netlify. Los cambios pendientes permanecen en este navegador.</p>')+
+    '</section>'+
     '<section class="settings-card calendar-panel"><p class="eyebrow">EN TU DISPOSITIVO</p><h2>Instalar PaceUp</h2><p class="settings-copy">Abrí tu entrenamiento desde la pantalla principal de Android.</p>' +
     (isInstalled ? '<p class="installed-message">✓ Estás usando la app instalada.</p>' : '<button class="outline-button install-button" type="button" data-install>Instalar app</button>') +
     (state.installHelp ? '<p class="settings-copy" role="status">' + escapeHTML(state.installHelp) + '</p>' : '') + '</section>' +
@@ -798,7 +903,7 @@ function settingsPage() {
 function feedbackMarkup() {
   const messages = [];
   if (state.error) messages.push(state.error);
-  if (state.storageMessage && (state.view === 'settings' || /No se pudo|No se pudieron|Registro guardado/.test(state.storageMessage))) messages.push(state.storageMessage);
+  if (state.storageMessage && (state.view === 'settings' || /No se pudo|No se pudieron|Registro guardado|Drive|pendiente|Google|actualizado/i.test(state.storageMessage))) messages.push(state.storageMessage);
   if (drive.status === 'warning' && state.view !== 'settings') messages.push(drive.message);
   return messages.length ? '<div class="app-feedback" role="status">' + messages.map(message=>'<p>' + escapeHTML(message) + '</p>').join('') + '</div>' : '';
 }
@@ -1030,6 +1135,7 @@ async function startApp() {
 }
 startApp();
 refreshWeather();
+if(driveWriteConfigured())loadGoogleIdentity().catch(()=>{});
 
 let lastToday = new Date().toDateString();
 setInterval(() => {
