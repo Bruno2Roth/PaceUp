@@ -92,6 +92,14 @@ export function registryEditorMarkup(day, record, escapeHTML, disabled=false, op
     '</section>';
 }
 
+function driveColorDone(day) {
+  const raw=String((day.sourceDay||day).rawColor||'').toUpperCase();
+  return ['FFFFFF00','FFFF9900','FFFF0000','FF00FF00','FF00FFFF','FF4A86E8'].includes(raw.slice(-8));
+}
+function dayDone(day,record) {
+  return typeof record?.done==='boolean'?record.done:driveColorDone(day);
+}
+
 function field(value) {
   let text = String(value ?? '');
   if (/^[\s]*[=+\-@]/.test(text)) text = "'" + text;
@@ -122,11 +130,11 @@ export function registryPageMarkup({days,records,filter='all',month='all',query=
   const months = [...new Set([...byDate.keys()].map(key=>key.slice(0,7)))].sort().reverse();
   const period = [...byDate].filter(([key])=>month==='all'||key.startsWith(month));
   const registered = period.filter(([key]) => records[key]?.done || records[key]?.edit || records[key]?.before || records[key]?.after || records[key]?.note?.trim());
-  const completed = period.filter(([key])=>records[key]?.done);
+  const completed = period.filter(([key,day])=>dayDone(day,records[key]));
   const realKm = period.reduce((sum,[key])=>sum+(Number(records[key]?.after?.actualKm)||0),0);
   const matches = period.filter(([key,day])=>{
     const r=records[key]||{};
-    if(filter==='done'&&!r.done || filter==='pending'&&r.done || filter==='records'&&!(r.done||r.edit||r.before||r.after||r.note?.trim()))return false;
+    if(filter==='done'&&!dayDone(day,r) || filter==='pending'&&dayDone(day,r) || filter==='records'&&!(dayDone(day,r)||r.edit||r.before||r.after||r.note?.trim()))return false;
     if(filter==='edited'&&!r.edit)return false;
     if(filter==='answers'&&!(r.before||r.after))return false;
     return !query || [key,day.title,r.note||'',r.edit?.title||''].join(' ').toLowerCase().includes(query.toLowerCase());
@@ -148,7 +156,7 @@ export function registryPageMarkup({days,records,filter='all',month='all',query=
       const actual=r.after?.actualKm!==undefined && r.after.actualKm!==null?' · '+r.after.actualKm+' km reales':'';
       const note=r.note?.trim()?' · Con nota':'';
       return '<article class="registry-row '+(r.done?'registry-row-done':'')+'"><div><time datetime="'+key+'">'+escapeHTML(formatDate(day.date,{day:'numeric',month:'long',year:'numeric'}))+'</time><h3>'+escapeHTML(day.title||plan.title)+'</h3>' +
-        '<p>'+escapeHTML((r.done?'✓ Listo':'Pendiente')+(changed?' · Editado':'')+actual+note)+'</p></div>' +
+        '<p>'+escapeHTML((dayDone(day,r)?'✓ Listo':'Pendiente')+(changed?' · Editado':'')+(r.pendingDrive?' · Sin sincronizar en Drive':'')+actual+note)+'</p></div>' +
         (day.id?'<button type="button" class="registry-open" data-day-id="'+escapeHTML(day.id)+'">Ver / editar ↗</button>':'<span class="registry-orphan">Sin día en el Excel</span>')+'</article>';
     }).join('')+'</div>' + (matches.length>100?'<p class="registry-tip">Se muestran los 100 resultados más recientes. Filtrá por mes para ver el resto.</p>':'') :
     '<p class="registry-empty">No hay días que coincidan con estos filtros.</p>') +
